@@ -1,0 +1,135 @@
+# Method Catalog for causal-audit v0.1
+# Defines 2 methods: PCMCI+ (RobustDefault), Granger (ComputeLight)
+
+catalog_version: "1.0.0"
+
+methods:
+  PCMCI+:
+    full_name: "PCMCI+ (PC-MCI with momentary conditional independence)"
+    description: "Robust causal discovery with constraint-based approach"
+    citation: "Runge et al. (2020). Sci Adv. doi:10.1126/sciadv.aau4996"
+    implementation: "tigramite"
+    
+    # Computational complexity
+    complexity:
+      base_queries_per_run: 1000
+      growth_formula: "O(N^2 * tau_max * k^(cond_set_size))"
+      cpu_hours_per_1000_queries: 0.5
+      memory_gb: 2.0
+    
+    # Assumption requirements
+    assumptions:
+      stationarity:
+        tolerance: "soft"
+        penalty_function: "quadratic"
+        penalty_weight: 0.5
+        rationale: "PCMCI+ handles weak nonstationarity via conditional tests"
+      
+      linearity:
+        tolerance: "soft"
+        penalty_function: "linear"
+        penalty_weight: 0.3
+        rationale: "ParCorr assumes linearity; violations reduce power"
+      
+      gaussianity:
+        tolerance: "none"
+        rationale: "ParCorr robust to non-Gaussianity under large samples"
+      
+      causal_sufficiency:
+        tolerance: "hard"
+        threshold: 0.8
+        penalty_function: "exponential"
+        penalty_weight: 1.0
+        rationale: "Unobserved confounders violate faithfulness"
+    
+    # Method parameters
+    parameters:
+      tau_max: "data_driven"  # Use safe_tau_max from audit
+      pc_alpha: 0.05
+      cond_ind_test: "ParCorr"
+      fdr_method: "BY-FDR"
+      max_cond_px: 4
+      verbosity: 1
+    
+    # Strategy mapping
+    strategy: "RobustDefault"
+  
+  Granger:
+    full_name: "Granger Causality (VAR-based)"
+    description: "Fast linear VAR-based causality test"
+    citation: "Granger (1969). Econometrica. doi:10.2307/1912791"
+    implementation: "statsmodels"
+    
+    # Computational complexity
+    complexity:
+      base_queries_per_run: 100
+      growth_formula: "O(N^2 * p)"
+      cpu_hours_per_1000_queries: 0.05
+      memory_gb: 0.5
+    
+    # Assumption requirements (stricter than PCMCI+)
+    assumptions:
+      stationarity:
+        tolerance: "hard"
+        threshold: 0.3
+        penalty_function: "exponential"
+        penalty_weight: 1.0
+        rationale: "VAR requires strict stationarity"
+      
+      linearity:
+        tolerance: "hard"
+        threshold: 0.4
+        penalty_function: "exponential"
+        penalty_weight: 1.0
+        rationale: "Granger is inherently linear"
+      
+      gaussianity:
+        tolerance: "soft"
+        penalty_function: "linear"
+        penalty_weight: 0.2
+        rationale: "Affects F-test validity"
+      
+      no_instantaneous_effects:
+        tolerance: "hard"
+        threshold: 0.9
+        rationale: "VAR models only lagged effects"
+    
+    # Method parameters
+    parameters:
+      maxlag: "aic_bounded_by_safe_tau_max"
+      alpha: 0.05
+      test: "ssr_ftest"
+      var_stability_check: true
+      verbosity: 0
+    
+    # Safety requirements
+    safety_checks:
+      - var_eigenvalues_less_than_one
+      - no_perfect_multicollinearity
+      - residuals_white_noise
+    
+    # Strategy mapping
+    strategy: "ComputeLight"
+
+# Admissibility score calculation (flexible formula)
+admissibility_formula: |
+  # For each method m and dataset with risk vector r:
+  #   1. For each assumption a in method m:
+  #      - If tolerance == "hard": score_a = 0 if r[a] > threshold[a] else 1
+  #      - If tolerance == "soft": score_a = penalty_function(r[a], weight[a])
+  #      - If tolerance == "none": score_a = 1
+  #   2. Aggregate: AdmissibilityScore(m|r) = product(score_a for a in assumptions)
+
+# Penalty functions library
+penalty_functions:
+  linear: "max(0, 1 - weight * risk)"
+  quadratic: "max(0, 1 - weight * risk^2)"
+  exponential: "exp(-weight * risk)"
+
+# Extensibility: Add new methods by appending to 'methods' section
+# Example (commented out, for v0.2):
+# LPCMCI:
+#   full_name: "Latent PCMCI"
+#   description: "PCMCI variant handling latent confounders"
+#   ...
+

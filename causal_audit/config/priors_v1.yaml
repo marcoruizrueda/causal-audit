@@ -1,0 +1,66 @@
+# Bayesian Priors for causal-audit v0.1
+# Configuration for risk quantification and decision thresholds
+
+priors_version: "1.0.0"
+
+# Risk model priors (v0.1: simple logistic, no hierarchical structure)
+risk_priors:
+  NonstationarityRisk:
+    intercept_prior: -2.0  # Prior: low risk in typical datasets
+    note: "Weights learned from Synthetic Atlas"
+  
+  IrregularityRisk:
+    intercept_prior: -1.5
+    note: "Irregular sampling common in observational data"
+  
+  PersistenceRisk:
+    intercept_prior: -1.0
+    note: "Some persistence expected in time series"
+  
+  ConfoundingRisk:
+    intercept_prior: -2.5
+    note: "Confounding harder to detect, prior conservative"
+
+# Utility function weights
+utility_weights:
+  lambda_cpu: 0.01  # Cost of compute
+  # v0.2 will add: lambda_fail (catastrophic risk weight)
+
+# Abstention thresholds (preregistered)
+abstention_thresholds:
+  t_eff_ratio_min: 0.30  # T_eff/T threshold
+  confidence_min: 0.60   # Minimum confidence for recommendation
+  cri_width_max: 0.5     # Maximum credible interval width
+
+# Catastrophic failure criteria (for v0.2 per-method risk)
+catastrophic_criteria:
+  gamma: 0.15  # Admissibility threshold
+  pi: 0.80     # Precision target
+
+# Statistical significance
+significance:
+  alpha: 0.05
+  fdr_scheme: "BY-FDR"
+  fdr_rationale: "BY-FDR chosen over BH due to positive dependence across multivariate lag tests (Benjamini & Yekutieli 2001)"
+
+# Bootstrap/resampling parameters
+resampling:
+  n_bootstrap_samples: 1000
+  block_bootstrap_length: "auto"  # Based on integral_tau
+
+# Softmax temperature for strategy probabilities
+decision_parameters:
+  softmax_beta: 2.0  # Temperature for utility → probability conversion
+
+# Value-of-Information heuristics
+voi:
+  sample_size_recommendation_threshold: 0.4  # Recommend more data if T_eff/T < this
+  additional_samples_suggestion: "30%"       # Suggest collecting X% more samples
+  cri_reduction_estimate: "20%"              # Expected CrI reduction with more data
+
+# Provenance
+provenance:
+  last_updated: "2024-12-01"
+  update_reason: "v0.1 initial calibration"
+  requires_recalibration_after: "Phase 2 (Synthetic Atlas)"
+

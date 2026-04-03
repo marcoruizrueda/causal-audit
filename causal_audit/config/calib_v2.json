@@ -1,0 +1,417 @@
+{
+  "calibration_version": "2.0.0",
+  "schema_version": "2.0.0",
+  "calibration_date": "2025-12-01T18:32:29.772058",
+  "metadata": {
+    "training_size": 396,
+    "validation_size": 100,
+    "total_dgps": 496,
+    "n_families": 10,
+    "n_risks": 4,
+    "model_type": "hierarchical_bayesian",
+    "framework": "PyMC 5.26.1",
+    "convergence": "All R-hat < 1.01",
+    "random_seed": 42
+  },
+  "validation_performance": {
+    "targets": {
+      "r2_min": 0.7,
+      "auroc_min": 0.85
+    },
+    "achieved": {
+      "NonstationarityRisk": {
+        "holdout_validation": {
+          "r2": 0.9319072366625316,
+          "auroc": 0.981283422459893,
+          "rmse": 0.0790046710320884,
+          "mae": 0.0358410008102989,
+          "n_samples": 100
+        },
+        "cross_validation_5fold": {
+          "r2_mean": 0.9284098716380772,
+          "r2_std": 0.0085250515953371,
+          "auroc_mean": 0.9782793905538264,
+          "auroc_std": 0.0079644069306348
+        },
+        "cross_validation_bootstrap": {
+          "r2_mean": 0.9271838419336108,
+          "r2_std": 0.0140273263899924,
+          "auroc_mean": 0.9791092172750276,
+          "auroc_std": 0.0062279631039727,
+          "n_iterations": 200
+        }
+      },
+      "IrregularityRisk": {
+        "holdout_validation": {
+          "r2": 0.8557548810381186,
+          "auroc": 0.9852320675105486,
+          "rmse": 0.1007122570688042,
+          "mae": 0.044235989572733,
+          "n_samples": 100
+        },
+        "cross_validation_5fold": {
+          "r2_mean": 0.8397477685171701,
+          "r2_std": 0.019206472104251,
+          "auroc_mean": 0.9831504365568376,
+          "auroc_std": 0.0030619853291169
+        },
+        "cross_validation_bootstrap": {
+          "r2_mean": 0.829818079194207,
+          "r2_std": 0.0305943098258381,
+          "auroc_mean": 0.9824592144707048,
+          "auroc_std": 0.0051388219459106,
+          "n_iterations": 200
+        }
+      },
+      "PersistenceRisk": {
+        "holdout_validation": {
+          "r2": 0.7449911806837871,
+          "auroc": 0.9792043399638336,
+          "rmse": 0.105039589210354,
+          "mae": 0.0471380002763065,
+          "n_samples": 100
+        },
+        "cross_validation_5fold": {
+          "r2_mean": 0.7570256089518926,
+          "r2_std": 0.0302920272299651,
+          "auroc_mean": 0.9806225093692652,
+          "auroc_std": 0.0044492696402539
+        },
+        "cross_validation_bootstrap": {
+          "r2_mean": 0.7456212270150973,
+          "r2_std": 0.0406217372352414,
+          "auroc_mean": 0.9783607854882068,
+          "auroc_std": 0.0086306737505844,
+          "n_iterations": 200
+        }
+      },
+      "ConfoundingRisk": {
+        "holdout_validation": {
+          "r2": 0.8680321769270676,
+          "auroc": 0.951591942820013,
+          "rmse": 0.1009771351673103,
+          "mae": 0.0398106473240622,
+          "n_samples": 100
+        },
+        "cross_validation_5fold": {
+          "r2_mean": 0.8765469547790286,
+          "r2_std": 0.0062543197376841,
+          "auroc_mean": 0.9785858882685212,
+          "auroc_std": 0.0044763613444419
+        },
+        "cross_validation_bootstrap": {
+          "r2_mean": 0.8687626163400622,
+          "r2_std": 0.0256456945170821,
+          "auroc_mean": 0.9699817319556724,
+          "auroc_std": 0.0134396053871244,
+          "n_iterations": 200
+        }
+      }
+    }
+  },
+  "global_hyperparameters": {
+    "NonstationarityRisk": {
+      "alpha": {
+        "mean": 0.39344474733584195,
+        "std": 0.09814315251667813,
+        "description": "Population mean risk (global prior)"
+      },
+      "sigma_family": {
+        "mean": 0.324543817607183,
+        "std": 0.07666018568478669,
+        "description": "Between-family standard deviation"
+      },
+      "sigma": {
+        "mean": 0.08130079129354735,
+        "std": 0.0029330777877441296,
+        "description": "Within-family standard deviation (observation noise)"
+      }
+    },
+    "IrregularityRisk": {
+      "alpha": {
+        "mean": 0.2428597674796286,
+        "std": 0.08313362593574791,
+        "description": "Population mean risk (global prior)"
+      },
+      "sigma_family": {
+        "mean": 0.2672177368215249,
+        "std": 0.06591615585867021,
+        "description": "Between-family standard deviation"
+      },
+      "sigma": {
+        "mean": 0.1036018940921279,
+        "std": 0.0037594168534183536,
+        "description": "Within-family standard deviation (observation noise)"
+      }
+    },
+    "PersistenceRisk": {
+      "alpha": {
+        "mean": 0.42667020849589526,
+        "std": 0.0605810078141979,
+        "description": "Population mean risk (global prior)"
+      },
+      "sigma_family": {
+        "mean": 0.19180363069778084,
+        "std": 0.05134991166555859,
+        "description": "Between-family standard deviation"
+      },
+      "sigma": {
+        "mean": 0.09185927831547411,
+        "std": 0.0033200250996075656,
+        "description": "Within-family standard deviation (observation noise)"
+      }
+    },
+    "ConfoundingRisk": {
+      "alpha": {
+        "mean": 0.2750219761793482,
+        "std": 0.08860892395567573,
+        "description": "Population mean risk (global prior)"
+      },
+      "sigma_family": {
+        "mean": 0.28539290674617596,
+        "std": 0.07091778228236784,
+        "description": "Between-family standard deviation"
+      },
+      "sigma": {
+        "mean": 0.09526695430968886,
+        "std": 0.0034640152674180126,
+        "description": "Within-family standard deviation (observation noise)"
+      }
+    }
+  },
+  "family_risk_profiles": {
+    "F10_extreme_cases": {
+      "NonstationarityRisk": {
+        "mean": 0.5065730812860094,
+        "lower_95": 0.4807124342968181,
+        "upper_95": 0.5322087113993818
+      },
+      "IrregularityRisk": {
+        "mean": 0.3120679775003841,
+        "lower_95": 0.2799579797311282,
+        "upper_95": 0.34457765501900217
+      },
+      "PersistenceRisk": {
+        "mean": 0.49944071211941143,
+        "lower_95": 0.4702918700095219,
+        "upper_95": 0.5287293848760191
+      },
+      "ConfoundingRisk": {
+        "mean": 0.3791421487896605,
+        "lower_95": 0.3491979789000185,
+        "upper_95": 0.4089176843094383
+      }
+    },
+    "F1_clean_var": {
+      "NonstationarityRisk": {
+        "mean": 0.05064176791334832,
+        "lower_95": 0.02566678124846291,
+        "upper_95": 0.07645667140518675
+      },
+      "IrregularityRisk": {
+        "mean": 0.05083504525680866,
+        "lower_95": 0.0198056609055613,
+        "upper_95": 0.08223008834235297
+      },
+      "PersistenceRisk": {
+        "mean": 0.2513514196152595,
+        "lower_95": 0.2231916308489726,
+        "upper_95": 0.27949353619661765
+      },
+      "ConfoundingRisk": {
+        "mean": 0.05070511326155771,
+        "lower_95": 0.0209453102709373,
+        "upper_95": 0.08008710679123818
+      }
+    },
+    "F2_structural_breaks": {
+      "NonstationarityRisk": {
+        "mean": 0.9492439380539331,
+        "lower_95": 0.9242879379432778,
+        "upper_95": 0.9743770092402154
+      },
+      "IrregularityRisk": {
+        "mean": 0.10049196869461409,
+        "lower_95": 0.0688465941181746,
+        "upper_95": 0.13171358268501826
+      },
+      "PersistenceRisk": {
+        "mean": 0.35057868503549755,
+        "lower_95": 0.3221796655719257,
+        "upper_95": 0.37830916234107836
+      },
+      "ConfoundingRisk": {
+        "mean": 0.10041039912202764,
+        "lower_95": 0.07103433125317654,
+        "upper_95": 0.1293174927695945
+      }
+    },
+    "F3_irregular_sampling": {
+      "NonstationarityRisk": {
+        "mean": 0.15039794058879769,
+        "lower_95": 0.12518996989344555,
+        "upper_95": 0.17565742306433668
+      },
+      "IrregularityRisk": {
+        "mean": 0.8238921276117133,
+        "lower_95": 0.7909911201723024,
+        "upper_95": 0.85642386680706
+      },
+      "PersistenceRisk": {
+        "mean": 0.30120937471632403,
+        "lower_95": 0.27354288904053425,
+        "upper_95": 0.32945775285049445
+      },
+      "ConfoundingRisk": {
+        "mean": 0.10074785923811044,
+        "lower_95": 0.07181559448237701,
+        "upper_95": 0.1302049855247894
+      }
+    },
+    "F4_high_persistence": {
+      "NonstationarityRisk": {
+        "mean": 0.20059485826558135,
+        "lower_95": 0.17522850897348533,
+        "upper_95": 0.22552193669603968
+      },
+      "IrregularityRisk": {
+        "mean": 0.10043404834643566,
+        "lower_95": 0.06848874927592506,
+        "upper_95": 0.1326550689425848
+      },
+      "PersistenceRisk": {
+        "mean": 0.8115706677612229,
+        "lower_95": 0.782146608312545,
+        "upper_95": 0.8395767452464328
+      },
+      "ConfoundingRisk": {
+        "mean": 0.1006220847433134,
+        "lower_95": 0.07141525314598983,
+        "upper_95": 0.12973860308886465
+      }
+    },
+    "F5_latent_confounders": {
+      "NonstationarityRisk": {
+        "mean": 0.20049707206009382,
+        "lower_95": 0.17521126568811696,
+        "upper_95": 0.22616833826097615
+      },
+      "IrregularityRisk": {
+        "mean": 0.10038487704796009,
+        "lower_95": 0.06811903757536959,
+        "upper_95": 0.13259885737653587
+      },
+      "PersistenceRisk": {
+        "mean": 0.3507407745492663,
+        "lower_95": 0.32285762931113526,
+        "upper_95": 0.3790238291054287
+      },
+      "ConfoundingRisk": {
+        "mean": 0.9306765672350784,
+        "lower_95": 0.9010011931410197,
+        "upper_95": 0.9604926966918604
+      }
+    },
+    "F6_seasonality": {
+      "NonstationarityRisk": {
+        "mean": 0.8221773777691886,
+        "lower_95": 0.7978682684557393,
+        "upper_95": 0.846563881369336
+      },
+      "IrregularityRisk": {
+        "mean": 0.10047195599809836,
+        "lower_95": 0.0688348678731719,
+        "upper_95": 0.13285100139323672
+      },
+      "PersistenceRisk": {
+        "mean": 0.4499310215118368,
+        "lower_95": 0.4223007536405433,
+        "upper_95": 0.47829691706313826
+      },
+      "ConfoundingRisk": {
+        "mean": 0.15032226815148797,
+        "lower_95": 0.1208983615722411,
+        "upper_95": 0.18042477634237267
+      }
+    },
+    "F7_nonlinear": {
+      "NonstationarityRisk": {
+        "mean": 0.25031984869351853,
+        "lower_95": 0.22362883313795742,
+        "upper_95": 0.27718188754148154
+      },
+      "IrregularityRisk": {
+        "mean": 0.10091399532705364,
+        "lower_95": 0.06753577002460073,
+        "upper_95": 0.13480512752696883
+      },
+      "PersistenceRisk": {
+        "mean": 0.3507741881996703,
+        "lower_95": 0.3204033933494563,
+        "upper_95": 0.38093160000733756
+      },
+      "ConfoundingRisk": {
+        "mean": 0.20054100551547202,
+        "lower_95": 0.16910248701172717,
+        "upper_95": 0.2319399872973005
+      }
+    },
+    "F8_non_gaussian": {
+      "NonstationarityRisk": {
+        "mean": 0.15043310843837557,
+        "lower_95": 0.12556424218780096,
+        "upper_95": 0.17538660398260153
+      },
+      "IrregularityRisk": {
+        "mean": 0.10066707002423365,
+        "lower_95": 0.06826104063124097,
+        "upper_95": 0.13251072011832948
+      },
+      "PersistenceRisk": {
+        "mean": 0.3006589790468639,
+        "lower_95": 0.27258654494985374,
+        "upper_95": 0.32856810781029094
+      },
+      "ConfoundingRisk": {
+        "mean": 0.1502996781300883,
+        "lower_95": 0.12007888188035314,
+        "upper_95": 0.18031819379785163
+      }
+    },
+    "F9_mixed_violations": {
+      "NonstationarityRisk": {
+        "mean": 0.5259835550467985,
+        "lower_95": 0.5003793621522373,
+        "upper_95": 0.5512985986426107
+      },
+      "IrregularityRisk": {
+        "mean": 0.43668071055716967,
+        "lower_95": 0.40476633323157357,
+        "upper_95": 0.4688259971365133
+      },
+      "PersistenceRisk": {
+        "mean": 0.5886622935565694,
+        "lower_95": 0.5599061631361336,
+        "upper_95": 0.6175985895208015
+      },
+      "ConfoundingRisk": {
+        "mean": 0.369684263075793,
+        "lower_95": 0.33899361491911684,
+        "upper_95": 0.3998061989454059
+      }
+    }
+  },
+  "usage_instructions": {
+    "prediction_method": "family_based",
+    "description": "To predict risk for a new DGP, identify its family (e.g., F2_structural_breaks) and use the corresponding family risk profile.",
+    "uncertainty": "Use lower_95 and upper_95 for 95% credible intervals",
+    "unseen_families": "For unknown families, use the global alpha (population mean) from hyperparameters"
+  },
+  "provenance": {
+    "atlas_version": "2.0",
+    "atlas_location": "/Volumes/X10 Pro/autocause_resources/data/synthetic_dgp_atlas_v02",
+    "training_script": "train_family_based_models.py",
+    "freeze_script": "freeze_calib_v2.py",
+    "freeze_date": "2025-12-01T18:32:29.772072"
+  }
+}
