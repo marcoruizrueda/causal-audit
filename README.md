@@ -14,7 +14,7 @@ A framework for risk assessment of assumption violations in time-series causal d
 > ³ Jet Propulsion Laboratory, Caltech
 
 <p align="center">
-  <img src="paper_figures/framework_overview.svg" width="95%" alt="Framework overview (Figure 1). Stage I computes diagnostics across five assumption families. Stages II–III add calibrated risk scores and an abstention-aware decision policy.">
+  <img src="framework_overview.svg" width="95%" alt="Framework overview (Figure 1). Stage I computes diagnostics across five assumption families. Stages II–III add calibrated risk scores and an abstention-aware decision policy.">
 </p>
 
 ## Installation
