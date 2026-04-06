@@ -57,24 +57,24 @@ print(result["policy"].decision)           # "recommend" or "abstain"
 print(result["policy"].recommended_method) # "PCMCI+" or "Granger"
 ```
 
-Stage I can be used alone for structured assumption auditing in individual studies. The full pipeline adds calibrated risk estimation and decision support.
+Stage I can be used alone for structured assumption auditing in individual studies. The full pipeline adds calibrated risk estimation and decision support. The current implementation supports two methods: PCMCI+ (Runge 2020), a constraint-based method using momentary conditional independence, and VAR-based Granger causality (Granger 1969), a regression-based method using F-tests on vector autoregressive models.
 
-## Synthetic DGP Atlas (Zenodo)
+## Synthetic DGP Atlas ([Zenodo](https://zenodo.org/records/19409395))
 
 500 synthetic multivariate time series with controlled assumption violations, designed for benchmarking causal discovery pre-processing and method selection. All families share a VAR(1) base process. Generated 2025-11-30, seed 42.
 
-| Family | Name | n | N | T | Violation mechanism | Severity |
-|--------|------|---|---|---|---------------------|----------|
-| F1 | Clean baseline | 50 | 5–8 | 500–1000 | None | ρ(A) ≤ 0.7 |
-| F2 | Structural breaks | 50 | 5–8 | 500–1000 | 1–3 regime changes in VAR coefficients | Continuous |
-| F3 | Irregular sampling | 50 | 5–8 | 500–1000 | MCAR / MAR / seasonal gaps | 15–35 % missing |
-| F4 | High persistence | 50 | 5–8 | 500–1000 | Near-unit-root spectral radius | ρ(A) ∈ [0.92, 0.98] |
-| F5 | Latent confounders | 50 | 5–8 | 500–1000 | L ∈ {1, 2} hidden common causes | σ_conf ∈ {0.3, 0.6, 0.9} |
-| F6 | Seasonality | 50 | 5–8 | 500–1000 | Additive harmonic components | P ∈ {12, 24, 52} |
-| F7 | Nonlinear | 50 | 5–8 | 500–1000 | tanh / sin / ReLU transforms | Moderate |
-| F8 | Non-Gaussian | 50 | 5–8 | 500–1000 | Student-t or Laplace noise | ν ∈ {3, 5, 10} |
-| F9 | Mixed violations | 50 | 5–8 | 500–1000 | 2–3 families combined | Multiple high |
-| F10 | Boundary cases | 50 | 3–12 | 200–2000 | Short series / high-dim / sparse / near-unit-root | Stress test |
+| Family | Name | Domain | n | N | T | Start date | End date | Violation mechanism | Severity |
+|--------|------|--------|---|---|---|------------|----------|---------------------|----------|
+| F1 | Clean baseline | Synthetic VAR(1) | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | None | ρ(A) ≤ 0.7 |
+| F2 | Structural breaks | Synthetic VAR(1) with regime changes | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | 1–3 regime changes in VAR coefficients | Continuous |
+| F3 | Irregular sampling | Synthetic VAR(1) with missingness | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | MCAR / MAR / seasonal gaps | 15–35 % missing |
+| F4 | High persistence | Synthetic near-unit-root VAR(1) | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | Near-unit-root spectral radius | ρ(A) ∈ [0.92, 0.98] |
+| F5 | Latent confounders | Synthetic VAR(1) with hidden causes | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | L ∈ {1, 2} hidden common causes | σ_conf ∈ {0.3, 0.6, 0.9} |
+| F6 | Seasonality | Synthetic VAR(1) with harmonic components | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | Additive harmonic components | P ∈ {12, 24, 52} |
+| F7 | Nonlinear | Synthetic nonlinear dynamics | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | tanh / sin / ReLU transforms | Moderate |
+| F8 | Non-Gaussian | Synthetic heavy-tailed VAR(1) | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | Student-t or Laplace noise | ν ∈ {3, 5, 10} |
+| F9 | Mixed violations | Synthetic multi-violation VAR(1) | 50 | 5–8 | 500–1000 | 2020-01-01 | 2021-05-15 – 2022-09-27 | 2–3 families combined | Multiple high |
+| F10 | Boundary cases | Synthetic stress-test VAR(1) | 50 | 3–12 | 200–2000 | 2020-01-01 | 2020-07-19 – 2025-06-23 | Short series / high-dim / sparse / near-unit-root | Stress test |
 
 Generator: `causal_audit_validation/generators/synthetic_atlas_extended_v02.py`.
 
@@ -159,14 +159,17 @@ python causaltime_validation/run_causaltime_validation.py
 ## Citation
 
 ```bibtex
-@article{ruiz2026causal_audit,
+@misc{ruiz2026causalaudit,
   title   = {Causal-Audit: A Framework for Risk Assessment of Assumption
              Violations in Time-Series Causal Discovery},
-  author  = {Ruiz, Marco and Arana-Catania, Miguel and Ardila, David R.
-             and Ventura, Rodrigo},
-  journal = {Journal of Causal Inference},
+  author  = {Marco Ruiz and Miguel Arana-Catania and David R. Ardila
+             and Rodrigo Ventura},
   year    = {2026},
-  url     = {https://github.com/marcoruizrueda/causal-audit}
+  eprint  = {2604.02488},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  doi     = {10.48550/arXiv.2604.02488},
+  url     = {https://arxiv.org/abs/2604.02488},
 }
 ```
 
