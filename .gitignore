@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environments
+.venv/
+
+# Tools
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+
+# OS
+.DS_Store
+
+# Paper validation (not used by the causal_audit package)
+causal_audit_validation/
+causaltime_validation/
+timegraph_validation/
+fluxnet_validation/
+paper_figures/
+timegraph_validation/
+fluxnet_validation/
+tests/
+causaltime_validation/
+docs/
