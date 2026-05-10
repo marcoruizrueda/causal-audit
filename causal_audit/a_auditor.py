@@ -116,6 +116,12 @@ class AssumptionAuditor:
         # 5. Confounding proxies (environmental invariance)
         diagnostics["confounding"] = self.check_confounding_proxies(df, metadata)
 
+        # 6. Pairwise nonlinearity (MI vs r² per pair) — CI test recommendation
+        diagnostics["pairwise_nonlinearity"] = self.check_pairwise_nonlinearity(df)
+
+        # 7. Power sufficiency (effective sample size vs parameter count)
+        diagnostics["power"] = self.check_power_sufficiency(df)
+
         # Compute safe tau_max
         safe_tau_max = self.compute_safe_tau_max(df, diagnostics)
 
@@ -514,6 +520,199 @@ class AssumptionAuditor:
             y.append(series[t])
 
         return np.array(X), np.array(y)
+
+    def check_pairwise_nonlinearity(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Pairwise nonlinearity detection between all variable pairs.
+
+        For each pair (X, Y), compares mutual information (nonlinear dependence)
+        against squared Pearson correlation (linear dependence). A high MI/r²
+        ratio indicates nonlinear relationships that ParCorr would miss.
+
+        Returns per-pair diagnostics with a recommended CI test.
+        """
+        from scipy.stats import pearsonr
+
+        results = {"pairs": {}, "summary": {}}
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        n_vars = len(numeric_cols)
+
+        if n_vars < 2:
+            results["summary"] = {"n_pairs": 0, "fraction_nonlinear": 0.0}
+            return results
+
+        n_nonlinear = 0
+        n_tested = 0
+
+        for i in range(n_vars):
+            for j in range(i + 1, n_vars):
+                x = df[numeric_cols[i]].values
+                y = df[numeric_cols[j]].values
+
+                # Pairwise complete observations
+                valid = ~(np.isnan(x) | np.isnan(y))
+                if valid.sum() < 50:
+                    continue
+
+                xv, yv = x[valid], y[valid]
+                n_tested += 1
+
+                # Linear: Pearson r²
+                r, _ = pearsonr(xv, yv)
+                r_squared = r**2
+
+                # Nonlinear proxy: binned mutual information estimate
+                mi = self._estimate_mi_binned(xv, yv)
+
+                # Ratio: MI / max(r², 0.01) — high ratio means nonlinear
+                ratio = mi / max(r_squared, 0.01)
+                is_nonlinear = ratio > 2.0 and mi > 0.1
+
+                if is_nonlinear:
+                    n_nonlinear += 1
+
+                pair_key = f"{numeric_cols[i]}_{numeric_cols[j]}"
+                results["pairs"][pair_key] = {
+                    "r_squared": float(r_squared),
+                    "mi_estimate": float(mi),
+                    "mi_r2_ratio": float(ratio),
+                    "is_nonlinear": is_nonlinear,
+                }
+
+        fraction_nonlinear = n_nonlinear / max(n_tested, 1)
+        results["summary"] = {
+            "n_pairs_tested": n_tested,
+            "n_nonlinear": n_nonlinear,
+            "fraction_nonlinear": float(fraction_nonlinear),
+            "recommended_ci_test": "cmiknn" if fraction_nonlinear > 0.3 else "parcorr",
+        }
+
+        return results
+
+    def _estimate_mi_binned(
+        self, x: np.ndarray, y: np.ndarray, n_bins: int = 20
+    ) -> float:
+        """Estimate mutual information using histogram binning (fast, approximate)."""
+        # Joint and marginal histograms
+        c_xy, _, _ = np.histogram2d(x, y, bins=n_bins)
+        c_x = c_xy.sum(axis=1)
+        c_y = c_xy.sum(axis=0)
+
+        # Normalize to probabilities
+        n = len(x)
+        p_xy = c_xy / n
+        p_x = c_x / n
+        p_y = c_y / n
+
+        # MI = sum p(x,y) * log(p(x,y) / (p(x)*p(y)))
+        mi = 0.0
+        for i in range(n_bins):
+            for j in range(n_bins):
+                if p_xy[i, j] > 0 and p_x[i] > 0 and p_y[j] > 0:
+                    mi += p_xy[i, j] * np.log2(p_xy[i, j] / (p_x[i] * p_y[j]))
+
+        return max(0.0, mi)
+
+    def check_power_sufficiency(
+        self, df: pd.DataFrame, tau_max: int = 14
+    ) -> Dict[str, Any]:
+        """
+        Statistical power analysis for causal discovery.
+
+        Assesses whether the dataset has sufficient effective observations
+        to support the number of conditional independence tests that PCMCI
+        will perform. Returns a power classification per variable and overall.
+
+        The key metric is T_eff / (N × τ_max): the ratio of effective
+        independent observations to the number of parameters being estimated.
+        Values below 5 indicate underpowered analysis.
+        """
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        n_vars = len(numeric_cols)
+        n_samples = len(df)
+
+        # Compute T_eff per variable (reuse persistence diagnostics if available)
+        t_eff_per_var = {}
+        for col in numeric_cols:
+            series = df[col].dropna().values
+            if len(series) < 20:
+                t_eff_per_var[col] = len(series)
+                continue
+            t_eff_per_var[col] = self._compute_t_eff_single(series)
+
+        # Overall effective sample size (minimum across variables)
+        min_t_eff = min(t_eff_per_var.values()) if t_eff_per_var else n_samples
+
+        # Power ratio: T_eff / (N * tau_max)
+        # This approximates the effective observations per parameter
+        n_parameters = n_vars * tau_max
+        power_ratio = min_t_eff / max(n_parameters, 1)
+
+        # Total tests PCMCI will perform (approximate)
+        n_total_tests = n_vars * (n_vars - 1) * tau_max
+
+        # Classification
+        if power_ratio >= 10:
+            power_class = "sufficient"
+        elif power_ratio >= 5:
+            power_class = "adequate"
+        elif power_ratio >= 2:
+            power_class = "marginal"
+        else:
+            power_class = "underpowered"
+
+        # Per-variable power
+        per_variable = {}
+        for col, teff in t_eff_per_var.items():
+            var_ratio = teff / max(n_vars * tau_max, 1)
+            per_variable[col] = {
+                "t_eff": float(teff),
+                "power_ratio": float(var_ratio),
+                "sufficient": var_ratio >= 5,
+            }
+
+        return {
+            "n_variables": n_vars,
+            "n_samples": n_samples,
+            "tau_max_tested": tau_max,
+            "min_t_eff": float(min_t_eff),
+            "n_parameters": n_parameters,
+            "power_ratio": float(power_ratio),
+            "power_class": power_class,
+            "n_total_tests_approx": n_total_tests,
+            "per_variable": per_variable,
+            "recommendation": (
+                "Proceed with standard analysis"
+                if power_class in ("sufficient", "adequate")
+                else "Results should be interpreted with caution; consider reducing tau_max or variable set"
+                if power_class == "marginal"
+                else "Analysis is underpowered; reduce tau_max, reduce variables, or use longer time series"
+            ),
+        }
+
+    def _compute_t_eff_single(self, series: np.ndarray) -> float:
+        """Compute effective sample size for a single series via integral timescale."""
+        n = len(series)
+        max_lag = min(n // 4, 200)
+
+        # Compute autocorrelation
+        mean = np.mean(series)
+        var = np.var(series)
+        if var < 1e-10:
+            return float(n)
+
+        acf = np.zeros(max_lag + 1)
+        acf[0] = 1.0
+        for lag in range(1, max_lag + 1):
+            cov = np.mean((series[lag:] - mean) * (series[:-lag] - mean))
+            acf[lag] = cov / var
+            if acf[lag] < 0:
+                break
+
+        # Integral timescale
+        integral_tau = 1.0 + 2.0 * np.sum(acf[1:])
+        t_eff = n / max(integral_tau, 1.0)
+        return max(1.0, t_eff)
 
     def check_confounding_proxies(
         self, df: pd.DataFrame, metadata: Optional[Dict[str, Any]] = None
