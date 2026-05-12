@@ -164,7 +164,15 @@ class RiskAwareGatekeeper:
                 "  ⚠️  WARNING: force_proceed=True - overriding abstention with explicit warnings!"
             )
         policy, scorecard = self.recommender.recommend(
-            risk_profile, compute_budget, force_proceed=force_proceed
+            risk_profile,
+            compute_budget,
+            t_eff_ratio=float(
+                np.mean(list(audit_evidence.t_eff.values()))
+                / max(1, audit_evidence.n_samples)
+            )
+            if audit_evidence.t_eff
+            else None,
+            force_proceed=force_proceed,
         )
 
         # Validate and save
@@ -175,48 +183,24 @@ class RiskAwareGatekeeper:
         scorecard_md = scorecard.to_markdown()
         save_markdown(scorecard_md, Path(output_dir) / "audit_scorecard.md")
 
-        # Generate plots (v0.1: 4 critical figures)
+        # Generate plots (all IEEE style, single consolidated call)
         try:
-            from .plotting import (
-                plot_risk_posteriors,
-                plot_decision_summary,
-                plot_time_series_overview,
-                plot_correlation_heatmap,
-            )
+            from .plotting import generate_all_figures
 
             print("Generating figures...")
-
-            # Figure 1: Risk posteriors
-            plot_risk_posteriors(
-                risk_profile.to_dict(),
-                output_path=Path(output_dir) / "figures" / "risk_posteriors.png",
+            generate_all_figures(
+                data=data,
+                audit_evidence_dict=audit_evidence.to_dict(),
+                risk_profile_dict=risk_profile.to_dict(),
+                policy_dict=policy.to_dict(),
+                output_dir=Path(output_dir),
             )
-
-            # Figure 2: Decision summary
-            plot_decision_summary(
-                policy.to_dict(),
-                risk_profile.to_dict(),
-                output_path=Path(output_dir) / "figures" / "decision_summary.png",
-            )
-
-            # Figure 3: Time series overview
-            plot_time_series_overview(
-                data,
-                output_path=Path(output_dir) / "figures" / "time_series_overview.png",
-            )
-
-            # Figure 4: Correlation heatmap
-            plot_correlation_heatmap(
-                data,
-                output_path=Path(output_dir) / "figures" / "correlation_heatmap.png",
-            )
-
-            print(f"  ✓ Generated 4 figures")
+            print("  ✓ Generated 7 figures (IEEE style, 300 DPI)")
 
         except Exception as e:
             print(f"  ⚠ Could not generate figures: {e}")
             print(
-                f"  (matplotlib/seaborn may not be installed: uv pip install seaborn)"
+                f"  (Install requirements: pip install matplotlib SciencePlots scipy statsmodels)"
             )
 
         print(f"\n✓ Analysis complete! Results saved to {output_dir}")

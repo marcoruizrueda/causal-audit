@@ -59,6 +59,8 @@ class RiskQuantifier:
         "IrregularityRisk",
         "PersistenceRisk",
         "ConfoundingRisk",
+        "NonlinearityRisk",
+        "SeasonalityRisk",
     ]
 
     def __init__(
@@ -274,6 +276,55 @@ class RiskQuantifier:
             "residual_variance_ratio": 1.0,  # Not yet implemented in auditor
             "vif_max": vif_max,
         }
+
+        # NonlinearityRisk diagnostics — from pairwise_nonlinearity and basic nonlinearity
+        # Uses the RESET-based pairwise test (fraction of nonlinear pairs) and
+        # the univariate RF vs. linear ΔRMSE (average across variables).
+        # Seasonality is now a separate SeasonalityRisk dimension.
+        nonlin_diags = {
+            "fraction_nonlinear_pairs": 0.0,
+            "mean_delta_rmse": 0.0,
+        }
+
+        pairwise_nl = diagnostics_dict.get("pairwise_nonlinearity", {})
+        if isinstance(pairwise_nl, dict) and "fraction_nonlinear" in pairwise_nl:
+            nonlin_diags["fraction_nonlinear_pairs"] = float(
+                pairwise_nl.get("fraction_nonlinear", 0.0)
+            )
+
+        basic_nl = diagnostics_dict.get("nonlinearity", {})
+        delta_rmse_vals = []
+        for var, stats in basic_nl.items():
+            if isinstance(stats, dict) and "delta_rmse_relative" in stats:
+                delta_rmse_vals.append(max(0.0, stats["delta_rmse_relative"]))
+        if delta_rmse_vals:
+            nonlin_diags["mean_delta_rmse"] = float(np.mean(delta_rmse_vals))
+
+        extracted["NonlinearityRisk"] = nonlin_diags
+
+        # SeasonalityRisk diagnostics — dedicated risk for trend+seasonal data.
+        # High SeasonalityRisk means the data has strong periodic components that
+        # violate the stationarity assumption of ParCorr/Granger. The recommended
+        # action is detrending/deseasonalization before discovery, not abstention.
+        seasonality = diagnostics_dict.get("seasonality", {})
+        seasonal_diags = {
+            "mean_spectral_ratio": 0.0,
+            "fraction_with_seasonality": 0.0,
+            "fraction_with_trend": 0.0,
+        }
+        if isinstance(seasonality, dict):
+            global_s = seasonality.get("global", {})
+            seasonal_diags["mean_spectral_ratio"] = float(
+                global_s.get("mean_spectral_ratio", 0.0)
+            )
+            seasonal_diags["fraction_with_seasonality"] = float(
+                global_s.get("fraction_with_seasonality", 0.0)
+            )
+            seasonal_diags["fraction_with_trend"] = float(
+                global_s.get("fraction_with_trend", 0.0)
+            )
+
+        extracted["SeasonalityRisk"] = seasonal_diags
 
         return extracted
 

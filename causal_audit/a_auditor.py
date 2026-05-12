@@ -122,6 +122,9 @@ class AssumptionAuditor:
         # 7. Power sufficiency (effective sample size vs parameter count)
         diagnostics["power"] = self.check_power_sufficiency(df)
 
+        # 8. Seasonality and trend detection
+        diagnostics["seasonality"] = self.check_seasonality(df)
+
         # Compute safe tau_max
         safe_tau_max = self.compute_safe_tau_max(df, diagnostics)
 
@@ -286,6 +289,79 @@ class AssumptionAuditor:
             max_diff = max(max_diff, diff)
 
         return max_diff
+
+    def check_seasonality(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detect deterministic seasonality and trends in each variable.
+
+        Uses two complementary tests:
+        1. Spectral power ratio: fraction of variance explained by the dominant
+           frequency (periodogram peak / total variance). High ratio → strong
+           periodic component.
+        2. STL residual ratio: fits a simple seasonal decomposition and measures
+           how much variance remains after removing trend + seasonal. Low residual
+           ratio → strong trend+seasonal structure.
+
+        Returns per-variable results and a global summary.
+        """
+        from scipy import signal as sp_signal
+
+        results = {"per_variable": {}, "global": {}}
+        spectral_ratios = []
+        has_trend = []
+
+        for col in df.columns:
+            series = df[col].dropna()
+            if len(series) < 50:
+                results["per_variable"][col] = {"error": "insufficient_data"}
+                continue
+
+            vals = series.values.astype(float)
+            T = len(vals)
+
+            # --- Spectral power ratio ---
+            freqs, psd = sp_signal.periodogram(vals - vals.mean())
+            total_power = psd.sum()
+            if total_power > 0:
+                peak_power = psd.max()
+                spectral_ratio = float(peak_power / total_power)
+            else:
+                spectral_ratio = 0.0
+
+            # --- Linear trend strength ---
+            t = np.arange(T)
+            slope, intercept = np.polyfit(t, vals, 1)
+            trend_line = slope * t + intercept
+            detrended = vals - trend_line
+            trend_var = np.var(trend_line)
+            total_var = np.var(vals)
+            trend_ratio = float(trend_var / total_var) if total_var > 0 else 0.0
+
+            spectral_ratios.append(spectral_ratio)
+            has_trend.append(trend_ratio > 0.10)
+
+            results["per_variable"][col] = {
+                "spectral_peak_ratio": spectral_ratio,
+                "trend_variance_ratio": trend_ratio,
+                "has_strong_seasonality": spectral_ratio > 0.20,
+                "has_trend": trend_ratio > 0.10,
+            }
+
+        # Global summary
+        if spectral_ratios:
+            results["global"]["mean_spectral_ratio"] = float(np.mean(spectral_ratios))
+            results["global"]["fraction_with_seasonality"] = float(
+                np.mean([r > 0.20 for r in spectral_ratios])
+            )
+            results["global"]["fraction_with_trend"] = float(np.mean(has_trend))
+            results["global"]["seasonality_detected"] = (
+                results["global"]["fraction_with_seasonality"] > 0.3
+                or results["global"]["mean_spectral_ratio"] > 0.25
+            )
+        else:
+            results["global"]["seasonality_detected"] = False
+
+        return results
 
     def check_irregularity(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -721,7 +797,9 @@ class AssumptionAuditor:
         Check confounding proxies via environmental invariance.
 
         Primary: Seasonal/regime Chow tests + residual invariance.
-        Auxiliary: VIF (design-matrix conditioning).
+        Auxiliary: VIF (design-matrix conditioning), computed on deseasonalized
+        data when seasonality is detected to avoid spurious inflation from
+        shared periodic components.
         """
         results = {}
 
@@ -736,9 +814,15 @@ class AssumptionAuditor:
             regime_labels = np.array([0] * (n // 2) + [1] * (n - n // 2))
             results["chow_tests"] = self._test_parameter_stability(df, regime_labels)
 
-        # VIF (auxiliary, design-matrix conditioning)
+        # VIF — deseasonalize first if seasonality is present to avoid
+        # spurious multicollinearity from shared periodic components
         if len(df.columns) > 1:
-            results["vif"] = self._compute_vif(df)
+            seasonality_check = self.check_seasonality(df)
+            seasonality_detected = seasonality_check.get("global", {}).get(
+                "seasonality_detected", False
+            )
+            results["vif"] = self._compute_vif(df, deseasonalize=seasonality_detected)
+            results["vif_deseasonalized"] = seasonality_detected
 
         return results
 
@@ -818,9 +902,37 @@ class AssumptionAuditor:
 
         return rss
 
-    def _compute_vif(self, df: pd.DataFrame) -> Dict[str, float]:
+    def _deseasonalize_for_vif(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Remove trend and seasonal components before VIF computation.
+
+        Seasonal multicollinearity (shared periodic components) inflates VIF
+        spuriously. Detrending removes this artifact so VIF reflects genuine
+        structural confounding rather than shared seasonality.
+
+        Uses a simple rolling-mean subtraction (window = min(365, T//3)) which
+        is fast and does not require knowledge of the seasonal period.
+        """
+        df_detrended = df.copy()
+        for col in df.columns:
+            series = df[col].dropna()
+            if len(series) < 50:
+                continue
+            window = min(365, max(7, len(series) // 3))
+            if window % 2 == 0:
+                window += 1
+            seasonal = series.rolling(window=window, center=True, min_periods=1).mean()
+            df_detrended[col] = df[col] - seasonal
+        return df_detrended.dropna()
+
+    def _compute_vif(
+        self, df: pd.DataFrame, deseasonalize: bool = False
+    ) -> Dict[str, float]:
         """
         Compute Variance Inflation Factor (auxiliary metric).
+
+        When deseasonalize=True, removes trend+seasonal components first to
+        avoid spurious VIF inflation from shared periodic components.
 
         Handles singular/near-singular matrices gracefully by detecting
         extreme multicollinearity and returning appropriate sentinel values.
@@ -829,6 +941,9 @@ class AssumptionAuditor:
 
         vif_results = {}
         df_clean = df.dropna()
+
+        if deseasonalize and len(df_clean) >= 50:
+            df_clean = self._deseasonalize_for_vif(df_clean)
 
         if len(df_clean) < 20 or len(df_clean.columns) < 2:
             return {"error": "insufficient_data"}

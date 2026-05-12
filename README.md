@@ -44,7 +44,7 @@ evidence = auditor.audit(df)               # → AuditEvidence with per-variable
 
 # Stage II — calibrated risk scores with 95 % credible intervals
 quantifier = RiskQuantifier()
-risk_profile = quantifier.quantify(evidence) # → RiskProfile (4 risks, CrI, ledger)
+risk_profile = quantifier.quantify(evidence) # → RiskProfile (6 risks, CrI, ledger)
 
 # Stage III — recommend a method or abstain
 recommender = MethodRecommender()
@@ -54,10 +54,26 @@ policy, scorecard = recommender.recommend(risk_profile) # → Policy + Scorecard
 gk = RiskAwareGatekeeper(random_seed=42)
 result = gk.analyze(data=df, output_dir="results/")
 print(result["policy"].decision)           # "recommend" or "abstain"
-print(result["policy"].recommended_method) # "PCMCI+" or "Granger"
+print(result["policy"].recommended_method) # "PCMCI+" or "LPCMCI"
 ```
 
-Stage I can be used alone for structured assumption auditing in individual studies. The full pipeline adds calibrated risk estimation and decision support. The current implementation supports two methods: PCMCI+ (Runge 2020), a constraint-based method using momentary conditional independence, and VAR-based Granger causality (Granger 1969), a regression-based method using F-tests on vector autoregressive models.
+Stage I can be used alone for structured assumption auditing in individual studies. The full pipeline adds calibrated risk estimation and decision support.
+
+## Generated Figures
+
+Every call to `gk.analyze()` produces 7 publication-quality figures (IEEE style, 300 DPI, PDF+PNG) in `output_dir/figures/`:
+
+| Figure | Description |
+|--------|-------------|
+| `prediscovery_summary` | Composite (panels a-e): time series overview, risk profile with CrI, ACF with T_eff, nonlinearity scatter, recommendation |
+| `correlation_and_lagged_crosscorrelation` | Contemporaneous Pearson correlation + max lagged cross-correlation matrices |
+| `spectral_density` | Power spectral density per variable with dominant period and power fraction |
+| `stationarity_diagnostic` | Rolling mean/std with ADF+KPSS verdict in causal discovery language |
+| `sample_size_adequacy` | Effective sample size per variable vs. method minimum requirements |
+| `assumption_deep_dive` | Per-assumption diagnostic (6 panels) with evidence and recommended action |
+| `dependency_network` | Preliminary causal graph (PCMCI+ with ParCorr, tau_max=2) via tigramite |
+
+Style is configurable via `DEFAULT_STYLE` in `causal_audit/plotting/figures.py`. Options: `"ieee"` (default), `"science"`, `"nature"`. Requires `pip install SciencePlots`.
 
 ## Synthetic DGP Atlas ([Zenodo](https://zenodo.org/records/19409395))
 

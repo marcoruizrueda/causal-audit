@@ -128,12 +128,9 @@ class MethodRecommender:
     METHOD_CONSTRAINTS = {
         "PCMCI+": {
             "hard_constraints": [
-                # (risk_name, threshold, description)
-                (
-                    "NonstationarityRisk",
-                    0.80,
-                    "Requires weak stationarity (structural breaks violate CI tests)",
-                ),
+                # PCMCI+ has no hard constraints on nonstationarity — it can be applied
+                # after detrending/deseasonalization. The recommendation will include
+                # a preprocessing note when NonstationarityRisk is high.
             ],
             "soft_constraints": [
                 (
@@ -164,8 +161,8 @@ class MethodRecommender:
             "hard_constraints": [
                 (
                     "NonstationarityRisk",
-                    0.60,
-                    "VAR requires stationarity (parameter estimation fails)",
+                    0.95,
+                    "VAR requires stationarity or differencing (parameter estimation fails on unit roots)",
                 ),
                 (
                     "ConfoundingRisk",
@@ -240,40 +237,47 @@ class MethodRecommender:
         Returns:
             (Policy, Scorecard) tuple
         """
-        # Extract risk values
+        # Extract risk values — now includes NonlinearityRisk and SeasonalityRisk
         risks = {
             name: risk_profile.risks[name]
-            for name in [
-                "NonstationarityRisk",
-                "IrregularityRisk",
-                "PersistenceRisk",
-                "ConfoundingRisk",
-            ]
+            for name in risk_profile.risk_names
+            if name in risk_profile.risks
         }
+        # Ensure backward compatibility: fill missing risks with zero
+        for name in [
+            "NonstationarityRisk",
+            "IrregularityRisk",
+            "PersistenceRisk",
+            "ConfoundingRisk",
+            "NonlinearityRisk",
+            "SeasonalityRisk",
+        ]:
+            if name not in risks:
+                risks[name] = {"mean": 0.0, "lower_95": 0.0, "upper_95": 0.0}
 
         # Collect abstention triggers (for force_proceed mode)
         abstention_warnings = []
 
         # Check T_eff ratio (if provided)
-        if t_eff_ratio is not None and t_eff_ratio < self.T_EFF_RATIO_THRESHOLD:
-            if not force_proceed:
-                return self._create_abstention_policy(
-                    risk_profile=risk_profile,
-                    reason="Insufficient effective sample size",
-                    detail=f"T_eff/T = {t_eff_ratio:.2f} < {self.T_EFF_RATIO_THRESHOLD}",
-                    code="LOW_T_EFF_RATIO",
-                )
-            else:
-                abstention_warnings.append(
-                    {
-                        "type": "LOW_T_EFF_RATIO",
-                        "message": f"Insufficient effective sample size: T_eff/T = {t_eff_ratio:.2f} < {self.T_EFF_RATIO_THRESHOLD}",
-                        "severity": "CRITICAL",
-                    }
-                )
+        # Note: T_eff/T can be very low for seasonal/autocorrelated data (e.g., 0.01 for
+        # strong seasonal patterns). This is NOT a reason to abstain — PCMCI+ is designed
+        # for autocorrelated time series. Only warn, never abstain on T_eff/T alone.
+        if t_eff_ratio is not None and t_eff_ratio < 0.05:
+            abstention_warnings.append(
+                {
+                    "type": "LOW_T_EFF_RATIO",
+                    "message": f"Low effective sample size: T_eff/T = {t_eff_ratio:.3f} "
+                    f"(high autocorrelation detected). Use large tau_max.",
+                    "severity": "WARNING",
+                }
+            )
 
         # Step 0b: Check for high uncertainty (interval width > 0.5)
+        # Exclude ConfoundingRisk (VIF CIs are inherently wide) and IrregularityRisk
+        # (gap CV estimates are noisy). Only abstain on structural risks.
         for risk_name, risk_vals in risks.items():
+            if risk_name in ("ConfoundingRisk", "IrregularityRisk", "NonlinearityRisk"):
+                continue
             interval_width = risk_vals["upper_95"] - risk_vals["lower_95"]
             if interval_width > 0.5:
                 if not force_proceed:
@@ -394,36 +398,160 @@ class MethodRecommender:
                 warnings=warnings,
             )
 
-        # Both admissible → choose based on persistence and compute
+        # Both admissible → choose based on data properties (nonlinearity, confounding, seasonality, persistence)
+        nonlin_mean = risks["NonlinearityRisk"]["mean"]
+        confound_mean = risks["ConfoundingRisk"]["mean"]
         persist_mean = risks["PersistenceRisk"]["mean"]
+        nonstat_mean = risks["NonstationarityRisk"]["mean"]
+        seasonal_mean = risks["SeasonalityRisk"]["mean"]
 
-        if persist_mean > 0.70:  # Corresponds to T_eff/T < 0.30
+        # Compute data-driven confidence: penalize for each elevated risk
+        base_confidence = 0.90
+        confidence_penalty = (
+            0.15 * min(nonlin_mean, 1.0)
+            + 0.10 * min(confound_mean, 1.0)
+            + 0.10 * min(persist_mean, 1.0)
+            + 0.05 * min(nonstat_mean, 1.0)
+            + 0.05 * min(seasonal_mean, 1.0)
+        )
+        data_driven_confidence = max(0.40, base_confidence - confidence_penalty)
+
+        # Decision tree: nonlinearity and confounding drive method selection
+        if nonlin_mean > 0.35:
+            # Nonlinear data: PCMCI+(CMIknn) or Transfer Entropy preferred
+            method = "PCMCI+"
+            reason = (
+                f"NonlinearityRisk={nonlin_mean:.2f} > 0.35: polynomial/nonlinear "
+                f"dependencies detected. ParCorr/Granger will miss these. "
+                f"PCMCI+(CMIknn) or Transfer Entropy recommended."
+            )
+            method_config = {
+                "pcmci": {
+                    "enabled": True,
+                    "test_method": "cmiknn",
+                    "allow_contemporaneous": True,
+                },
+                "transfer_entropy": {"enabled": True},
+                "granger": {"enabled": True, "note": "linear baseline only"},
+            }
+            return self._create_recommendation_policy(
+                risk_profile=risk_profile,
+                method=method,
+                confidence=round(data_driven_confidence, 2),
+                reason=reason,
+                method_config=method_config,
+                warnings=abstention_warnings,
+            )
+
+        if confound_mean > 0.45:
+            # Latent confounders suspected: LPCMCI preferred
+            method = "LPCMCI"
+            reason = (
+                f"ConfoundingRisk={confound_mean:.2f} > 0.35: latent confounders "
+                f"suspected. Standard PCMCI+ may produce spurious edges. "
+                f"LPCMCI (FCI-based) recommended."
+            )
+            method_config = {
+                "lpcmci": {"enabled": True},
+                "pcmci": {
+                    "enabled": True,
+                    "test_method": "parcorr",
+                    "note": "fallback if LPCMCI too slow",
+                },
+                "granger": {"enabled": True, "note": "linear baseline only"},
+            }
+            return self._create_recommendation_policy(
+                risk_profile=risk_profile,
+                method=method,
+                confidence=round(data_driven_confidence, 2),
+                reason=reason,
+                method_config=method_config,
+                warnings=abstention_warnings,
+            )
+
+        if seasonal_mean > 0.30:
+            # Trend+seasonality: dedicated SeasonalityRisk dimension
+            # Detrend first, then PCMCI+(ParCorr) on residuals
+            method = "PCMCI+"
+            reason = (
+                f"SeasonalityRisk={seasonal_mean:.2f} > 0.30: deterministic trend or "
+                f"seasonal components detected. Deseasonalize/detrend before discovery. "
+                f"PCMCI+(ParCorr) on residuals recommended."
+            )
+            method_config = {
+                "pcmci": {
+                    "enabled": True,
+                    "test_method": "parcorr",
+                    "allow_contemporaneous": True,
+                },
+                "granger": {"enabled": True, "note": "linear baseline"},
+                "preprocessing": {"deseasonalize": True},
+            }
+            return self._create_recommendation_policy(
+                risk_profile=risk_profile,
+                method=method,
+                confidence=round(data_driven_confidence, 2),
+                reason=reason,
+                method_config=method_config,
+                warnings=abstention_warnings,
+            )
+
+        if nonstat_mean > 0.40 and seasonal_mean <= 0.30:
+            # Structural breaks or drift (not seasonal): detrend + PCMCI+
+            method = "PCMCI+"
+            reason = (
+                f"NonstationarityRisk={nonstat_mean:.2f} > 0.40 (structural breaks or drift, "
+                f"SeasonalityRisk={seasonal_mean:.2f} low). Detrend before discovery."
+            )
+            method_config = {
+                "pcmci": {
+                    "enabled": True,
+                    "test_method": "parcorr",
+                    "allow_contemporaneous": True,
+                },
+                "granger": {"enabled": True, "note": "linear baseline"},
+                "preprocessing": {"deseasonalize": True},
+            }
+            return self._create_recommendation_policy(
+                risk_profile=risk_profile,
+                method=method,
+                confidence=round(data_driven_confidence, 2),
+                reason=reason,
+                method_config=method_config,
+                warnings=abstention_warnings,
+            )
+
+        if persist_mean > 0.70:
             # High persistence → prefer PCMCI+ (handles long lags better)
             return self._create_recommendation_policy(
                 risk_profile=risk_profile,
                 method="PCMCI+",
-                confidence=0.90,
-                reason="High persistence requires robust method with large tau_max",
-                detail=f"PersistenceRisk = {persist_mean:.2f} → PCMCI+ preferred",
+                confidence=round(data_driven_confidence, 2),
+                reason=f"PersistenceRisk={persist_mean:.2f} > 0.70: high autocorrelation. "
+                f"PCMCI+ with large tau_max preferred over Granger.",
+                warnings=abstention_warnings,
             )
-        elif compute_budget is not None and compute_budget < 3600:
-            # Tight compute budget → prefer Granger
-            return self._create_recommendation_policy(
-                risk_profile=risk_profile,
-                method="Granger",
-                confidence=0.80,
-                reason="Compute budget tight, Granger suitable for low-risk data",
-                detail=f"Budget = {compute_budget}s, all risks acceptable",
-            )
-        else:
-            # Low risk, no constraints → prefer Granger (faster)
-            return self._create_recommendation_policy(
-                risk_profile=risk_profile,
-                method="Granger",
-                confidence=0.85,
-                reason="Low risk profile, compute-efficient method suitable",
-                detail="All risks within acceptable bounds for both methods",
-            )
+
+        # Low risk, linear, no confounders, no seasonality → PCMCI+(ParCorr) is optimal
+        return self._create_recommendation_policy(
+            risk_profile=risk_profile,
+            method="PCMCI+",
+            confidence=round(data_driven_confidence, 2),
+            reason=(
+                f"Low risk profile (nonlin={nonlin_mean:.2f}, confound={confound_mean:.2f}, "
+                f"seasonal={seasonal_mean:.2f}, nonstat={nonstat_mean:.2f}): "
+                f"linear Gaussian data. PCMCI+(ParCorr) recommended for best FDR control."
+            ),
+            method_config={
+                "pcmci": {
+                    "enabled": True,
+                    "test_method": "parcorr",
+                    "allow_contemporaneous": True,
+                },
+                "granger": {"enabled": True, "note": "fast linear baseline"},
+            },
+            warnings=abstention_warnings,
+        )
 
     def _check_catastrophic_violations(self, risks: Dict) -> Optional[Dict]:
         """Check for catastrophic violations that invalidate all methods."""
@@ -431,38 +559,42 @@ class MethodRecommender:
         nonstat = risks["NonstationarityRisk"]["mean"]
         confound = risks["ConfoundingRisk"]["mean"]
 
-        # Very high nonstationarity (>0.85) breaks all methods
-        if nonstat > 0.85:
-            return {
-                "reason": "Critical nonstationarity detected",
-                "detail": f"NonstationarityRisk = {nonstat:.2f} > 0.85 (likely structural breaks or strong seasonality)",
-                "code": "CRITICAL_NONSTATIONARITY",
-            }
+        # Very high nonstationarity (>0.95) — check if it's due to seasonality
+        # (manageable with detrending) or unit root (catastrophic)
+        if nonstat > 0.95:
+            # Check if seasonality is the cause (from risk ledger)
+            # If NonlinearityRisk is low but NonstationarityRisk is extreme,
+            # it's likely trend/seasonality rather than a unit root.
+            # Route to "detrend first" recommendation rather than abstaining.
+            nonlin = risks.get("NonlinearityRisk", {}).get("mean", 0.0)
+            if nonlin < 0.30:
+                # Likely trend/seasonality: recommend detrending + PCMCI+
+                # (handled in the main decision tree below)
+                pass  # Don't abstain; fall through to decision tree
+            else:
+                return {
+                    "reason": "Critical nonstationarity with nonlinearity",
+                    "detail": f"NonstationarityRisk={nonstat:.2f} AND NonlinearityRisk={nonlin:.2f}: "
+                    f"likely explosive nonlinear process",
+                    "code": "CRITICAL_NONSTATIONARITY",
+                }
 
-        # Multiple high risks (nonstationarity + confounding)
-        if nonstat > 0.70 and confound > 0.85:
+        # Multiple high risks (nonstationarity + confounding) — only abstain if both extreme
+        # AND nonlinearity is also high (ruling out seasonal multicollinearity as the cause)
+        nonlin = risks.get("NonlinearityRisk", {}).get("mean", 0.0)
+        if nonstat > 0.90 and confound > 0.90 and nonlin > 0.30:
             return {
                 "reason": "Multiple critical violations",
-                "detail": f"NonstationarityRisk = {nonstat:.2f} AND ConfoundingRisk = {confound:.2f}",
+                "detail": f"NonstationarityRisk={nonstat:.2f}, ConfoundingRisk={confound:.2f}, "
+                f"NonlinearityRisk={nonlin:.2f}: complex data structure",
                 "code": "MULTIPLE_CRITICAL_VIOLATIONS",
             }
 
-        # Composite risk exceeding 0.90 (worst-case across all dimensions)
-        composite = max(
-            risks[r]["mean"]
-            for r in [
-                "NonstationarityRisk",
-                "IrregularityRisk",
-                "PersistenceRisk",
-                "ConfoundingRisk",
-            ]
-        )
-        if composite > 0.90:
-            return {
-                "reason": "Composite risk exceeds 0.90",
-                "detail": f"max(R) = {composite:.2f} > 0.90 (expected failure rate exceeds 90%)",
-                "code": "EXTREME_COMPOSITE_RISK",
-            }
+        # Composite risk exceeding 0.90 (NonstationarityRisk only — the most critical)
+        # PersistenceRisk and IrregularityRisk are handled by method selection, not abstention.
+        if nonstat > 0.95:
+            # Already handled above (only abstain if nonlinear too)
+            pass
 
         return None
 
@@ -506,19 +638,27 @@ class MethodRecommender:
         reason: str,
         detail: Optional[str] = None,
         warnings: Optional[List] = None,  # Can be List[str] or List[Dict]
+        method_config: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Policy, Scorecard]:
         """Create recommendation policy."""
 
         timestamp = datetime.now().isoformat()
 
-        # Build method config
-        method_config = {
-            "method": method,
-            "tau_max": 12,  # Default, can be adjusted based on persistence
-            "alpha": 0.05,
-            "ci_test": "ParCorr" if method == "PCMCI+" else "F-test",
-            "fdr_method": "BY",  # Benjamini-Yekutieli
-        }
+        # Build method config — use caller-provided config if given, else defaults
+        if method_config is None:
+            method_config = {
+                "method": method,
+                "tau_max": 12,  # Default, can be adjusted based on persistence
+                "alpha": 0.05,
+                "ci_test": "ParCorr" if method == "PCMCI+" else "F-test",
+                "fdr_method": "BY",  # Benjamini-Yekutieli
+            }
+        else:
+            # Merge with defaults
+            method_config.setdefault("method", method)
+            method_config.setdefault("tau_max", 12)
+            method_config.setdefault("alpha", 0.05)
+            method_config.setdefault("fdr_method", "fdr_bh")
 
         # Adjust tau_max for high persistence
         persist_mean = risk_profile.risks["PersistenceRisk"]["mean"]

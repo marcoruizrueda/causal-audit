@@ -1,21 +1,12 @@
 """
-Plotting modules for causal-audit package.
+Plotting module for causal-audit package.
 
-v0.1: 4 critical figures (risk posteriors, decision, time series, correlation)
-v0.2: Full 12-figure gallery (data overview, diagnostics, pairwise, etc.)
+Single entry point: generate_all_figures() produces all 5 publication-quality
+figures in IEEE style (SciencePlots).
 """
 
-from .core_plots_v01 import (
-    plot_risk_posteriors,
-    plot_decision_summary,
-    plot_time_series_overview,
-    plot_correlation_heatmap
-)
+from .figures import generate_all_figures
 
 __all__ = [
-    "plot_risk_posteriors",
-    "plot_decision_summary", 
-    "plot_time_series_overview",
-    "plot_correlation_heatmap"
+    "generate_all_figures",
 ]
-
