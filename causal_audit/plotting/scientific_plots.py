@@ -3,7 +3,7 @@ Scientific Plotting Functions for causal-audit Paper
 ====================================================
 
 Additional plots for scientific publication beyond the core 4 figures:
-1. Diagnostic deep-dive plots (stationarity, persistence, confounding)
+1. Diagnostic deep-dive plots (stationarity, persistence, causal insufficiency)
 2. Risk calibration and uncertainty visualization
 3. Method suitability matrix
 4. Temporal aggregation analysis
@@ -1250,7 +1250,7 @@ def plot_real_world_walkthrough(output_path: Optional[str] = None) -> str:
         "Irregularity",
         "Persistence",
         "Nonlinearity",
-        "Confounding",
+        "Causal insufficiency",
     ]
     risk_levels = [0.85, 0.65, 0.45, 0.35, 0.75]  # High risks
     colors = [
@@ -1348,7 +1348,7 @@ def plot_real_world_walkthrough(output_path: Optional[str] = None) -> str:
     ax4.text(
         0.5,
         0.3,
-        "RATIONALE:\n• High nonstationarity risk\n• Structural breaks detected\n• Missing data present\n• Strong confounding",
+        "RATIONALE:\n• High nonstationarity risk\n• Structural breaks detected\n• Missing data present\n• Strong causal insufficiency",
         ha="center",
         va="center",
         fontsize=11,
@@ -1451,7 +1451,12 @@ def plot_comprehensive_calibration(output_path: Optional[str] = None) -> str:
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
 
     # Risk types for calibration
-    risk_types = ["Nonstationarity", "Irregularity", "Persistence", "Confounding"]
+    risk_types = [
+        "Nonstationarity",
+        "Irregularity",
+        "Persistence",
+        "Causal insufficiency",
+    ]
     colors = [PASTEL["poor"], PASTEL["moderate"], PASTEL["good"], PASTEL["excellent"]]
 
     # Plot 1: Per-risk calibration curves
@@ -1603,7 +1608,7 @@ def plot_comprehensive_calibration(output_path: Optional[str] = None) -> str:
     ax5 = axes[1, 1]
 
     metrics = ["Slope", "Intercept", "R²", "Brier"]
-    risk_names = ["Nonstat.", "Irreg.", "Persist.", "Confound."]
+    risk_names = ["Nonstat.", "Irreg.", "Persist.", "Causal insuff."]
 
     # Simulated calibration metrics (good values)
     calib_matrix = np.array(
@@ -1611,7 +1616,7 @@ def plot_comprehensive_calibration(output_path: Optional[str] = None) -> str:
             [0.98, 0.02, 0.96, 0.08],  # Nonstationarity
             [1.01, -0.01, 0.94, 0.09],  # Irregularity
             [0.97, 0.03, 0.95, 0.07],  # Persistence
-            [1.02, 0.01, 0.93, 0.10],  # Confounding
+            [1.02, 0.01, 0.93, 0.10],  # Causal insufficiency
         ]
     )
 
@@ -2112,7 +2117,7 @@ def plot_computational_cost_analysis(output_path: Optional[str] = None) -> str:
         "Irregularity",
         "Persistence",
         "Nonlinearity",
-        "Confounding",
+        "Causal insufficiency",
     ]
     runtimes = [0.2, 0.1, 0.8, 1.2, 0.3]  # Seconds for n=1000
     colors_diag = [
@@ -2247,7 +2252,7 @@ def plot_framework_architecture(output_path: Optional[str] = None) -> str:
             ax.text(
                 center_x,
                 center_y - 0.08,
-                "5 Diagnostics\n• Stationarity\n• Irregularity\n• Persistence\n• Nonlinearity\n• Confounding",
+                "5 Diagnostics\n• Stationarity\n• Irregularity\n• Persistence\n• Nonlinearity\n• Causal insufficiency",
                 ha="center",
                 va="center",
                 fontsize=9,

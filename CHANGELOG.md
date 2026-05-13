@@ -1,6 +1,21 @@
 # Changelog
 
-## v0.3.0 (2026-05-12)
+## v0.3.2 (2026-05-13)
+
+### Terminology
+
+- **Renamed display label "Confounding" → "Causal insufficiency"** in all figures and human-readable outputs. The internal key `ConfoundingRisk` is preserved for backward compatibility with serialized JSON files and calibration configs. True latent confounding is unidentifiable from observational data; the diagnostics (VIF, Chow test) measure multicollinearity and parameter instability as proxy indicators of potential causal insufficiency.
+
+### Bug Fixes
+
+- **Empty "Suggested action:" in `prediscovery_summary` figure**: When risk scores fell in moderate ranges (e.g., Nonstationarity 0.30–0.59, Confounding 0.30–0.44) none of the conditional branches fired, leaving the suggestion section blank. Replaced with a comprehensive accumulator covering all risk dimensions (including Seasonality, Persistence, Irregularity) with a guaranteed fallback.
+
+### Plotting
+
+- Added visible legend (lower right, semi-transparent background) to subplot (d) in `prediscovery_summary` for the nonlinearity scatter (red = nonlinear, blue = linear pairs).
+- Inline comments added at key locations (`b_quantifier.py`, `c_recommender.py`, `figures.py`, `causal_audit_adapter.py`) documenting that `ConfoundingRisk` is displayed as "Causal insufficiency" and represents proxy indicators, not a detection of latent confounders.
+
+## v0.3.1 (2026-05-12)
 
 ### New Features
 

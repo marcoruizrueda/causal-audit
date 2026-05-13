@@ -163,7 +163,7 @@ def _plot_prediscovery_summary(
     RISK_NAMES = [
         "Nonstationarity",
         "Nonlinearity",
-        "Confounding",
+        "Causal insufficiency",  # aka confounding proxy; measures multicollinearity/VIF, not latent confounders directly
         "Irregularity",
         "Persistence",
         "Seasonality",
@@ -171,7 +171,7 @@ def _plot_prediscovery_summary(
     RISK_KEYS = [
         "NonstationarityRisk",
         "NonlinearityRisk",
-        "ConfoundingRisk",
+        "ConfoundingRisk",  # internal key kept for backward compatibility with serialized JSON
         "IrregularityRisk",
         "PersistenceRisk",
         "SeasonalityRisk",
@@ -382,9 +382,12 @@ def _plot_prediscovery_summary(
                 label="Linear",
             ),
         ],
-        frameon=False,
+        frameon=True,
         fontsize=7,
-        loc="upper left",
+        loc="lower right",
+        fancybox=True,
+        framealpha=0.9,
+        edgecolor="#CCCCCC",
     )
     ax_nl.text(
         -0.02,
@@ -417,14 +420,28 @@ def _plot_prediscovery_summary(
 
     text_lines.append("")
     text_lines.append("Suggested action:")
+    suggestions = []
     if vals[0] >= 0.60:
-        text_lines.append("  Detrend/deseasonalize before discovery")
+        suggestions.append("  Detrend/deseasonalize before discovery")
+    elif vals[0] >= 0.30:
+        suggestions.append("  Check stationarity; consider detrending")
+    if vals[5] >= 0.60:
+        suggestions.append("  Remove seasonal component before discovery")
+    elif vals[5] >= 0.30:
+        suggestions.append("  Account for seasonality (large tau_max)")
     if vals[1] >= 0.35:
-        text_lines.append("  Use CMIknn (nonlinear CI test)")
+        suggestions.append("  Use CMIknn (nonlinear CI test)")
     if vals[2] >= 0.45:
-        text_lines.append("  Use LPCMCI (latent confounders)")
-    if all(v < 0.30 for v in vals):
-        text_lines.append("  Use PCMCI+ with ParCorr")
+        suggestions.append("  Use LPCMCI (latent confounders)")
+    elif vals[2] >= 0.30:
+        suggestions.append("  Consider LPCMCI or include proxy variables")
+    if vals[4] >= 0.50:
+        suggestions.append("  Increase tau_max for persistent dependencies")
+    if vals[3] >= 0.50:
+        suggestions.append("  Regularize sampling or use gap-robust estimator")
+    if not suggestions:
+        suggestions.append("  Use PCMCI+ with ParCorr")
+    text_lines.extend(suggestions)
 
     ax_rec.text(
         0.05,
@@ -1083,9 +1100,9 @@ def _plot_assumption_deep_dive(
         ),
     )
 
-    # -- (d) Confounding: VIF per variable --
+    # -- (d) Causal insufficiency: VIF per variable --
     ax = fig.add_subplot(gs[1, 1])
-    confounding = diags.get("confounding", {})
+    confounding = diags.get("confounding", {})  # internal key unchanged for compat
     vif_data = confounding.get("vif", {})
     vif_names = []
     vif_vals = []
@@ -1117,7 +1134,7 @@ def _plot_assumption_deep_dive(
     ax.tick_params(labelsize=7)
     risk_val = risks.get("ConfoundingRisk", {}).get("mean", 0)
     action = "Use LPCMCI (latent vars)" if risk_val >= 0.45 else "Standard methods OK"
-    ax.set_title(f"(d) Confounding [risk={risk_val:.2f}]", fontsize=8, pad=3)
+    ax.set_title(f"(d) Causal insufficiency [risk={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
         0.02,

@@ -332,7 +332,7 @@ class RiskAwareGatekeeper:
             df_persistence = pd.DataFrame(persistence_rows)
             df_persistence.to_csv(tables_dir / "persistence_tests.csv", index=False)
 
-        # Confounding
+        # Causal insufficiency proxies (VIF, Chow tests for parameter stability)
         confounding_rows = []
         for var, stats in (
             evidence.diagnostics.get("confounding", {}).get("chow_tests", {}).items()

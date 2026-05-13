@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "causal-audit"
-version = "0.3.0"
-description = "A framework for risk assessment of assumption violations in time-series causal discovery"
+version = "0.3.1"
+description = "A framework for risk assessment of assumption violations in time-series causal discovery. Generates publication-quality pre-discovery figures (IEEE style) and method recommendations."
 authors = [
     {name = "Marco Ruiz", email = "marco.rueda@tecnico.ulisboa.pt"},
     {name = "Miguel Arana-Catania"},
@@ -21,7 +21,10 @@ keywords = [
     "assumption-testing",
     "bayesian",
     "decision-support",
-    "risk-quantification"
+    "risk-quantification",
+    "pre-discovery",
+    "pcmci",
+    "tigramite",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,6 +52,10 @@ dependencies = [
 viz = [
     "matplotlib>=3.4.0",
     "seaborn>=0.11.0",
+    "SciencePlots>=2.0.0",
+]
+graphs = [
+    "tigramite>=5.2.8",
 ]
 eo = [
     "pyproj>=3.0.0",
@@ -64,6 +71,8 @@ dev = [
 all = [
     "matplotlib>=3.4.0",
     "seaborn>=0.11.0",
+    "SciencePlots>=2.0.0",
+    "tigramite>=5.2.8",
     "pyproj>=3.0.0",
     "geopandas>=0.10.0",
 ]

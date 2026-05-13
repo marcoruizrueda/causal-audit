@@ -248,7 +248,7 @@ class MethodRecommender:
             "NonstationarityRisk",
             "IrregularityRisk",
             "PersistenceRisk",
-            "ConfoundingRisk",
+            "ConfoundingRisk",  # display: "Causal insufficiency"; proxy for latent confounders
             "NonlinearityRisk",
             "SeasonalityRisk",
         ]:

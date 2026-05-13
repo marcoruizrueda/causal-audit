@@ -58,7 +58,7 @@ class RiskQuantifier:
         "NonstationarityRisk",
         "IrregularityRisk",
         "PersistenceRisk",
-        "ConfoundingRisk",
+        "ConfoundingRisk",  # display: "Causal insufficiency"; proxy for latent confounders via VIF/Chow diagnostics
         "NonlinearityRisk",
         "SeasonalityRisk",
     ]
@@ -235,7 +235,9 @@ class RiskQuantifier:
             "integral_tau": np.mean(integral_taus) if len(integral_taus) > 0 else 0.0,
         }
 
-        # ConfoundingRisk diagnostics
+        # ConfoundingRisk diagnostics (displayed as "Causal insufficiency")
+        # These are proxy indicators for potential latent confounders; true confounding
+        # is unidentifiable from observational data alone (Spirtes et al., 2000).
         chow_stats = []
         vif_vals = []
 
