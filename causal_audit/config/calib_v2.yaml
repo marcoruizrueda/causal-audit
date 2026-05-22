@@ -393,17 +393,48 @@ global_parameters:
       sigma: 0.2
       sigma_family: 0.3
       n_samples: 0
-      note: Data-driven alpha (calculated from F1/F5 observed behavior - F1 baseline should be ~0.30)
+      note: "Reduced Chow weight (measures parameter instability, not confounding directly). VIF is the primary signal."
       diagnostic_weights:
         chow_f_stat:
-          weight: 2.0
-          rationale:
-            "High Chow F-stat \u2192 parameter instability \u2192 potential\
-            \ confounding"
+          weight: 1.0
+          rationale: "Reduced from 2.0: Chow test detects structural breaks (nonstationarity), not confounding per se"
         residual_variance_ratio:
-          weight: 1.8
-          rationale: Residual variance changes across regimes
+          weight: 1.5
+          rationale: Residual variance changes across regimes (reduced from 1.8)
         vif_max:
-          weight: 0.5
-          rationale: "VIF > 10 \u2192 high multicollinearity (auxiliary signal)"
-      description: Maps parameter instability and multicollinearity to risk
+          weight: 1.0
+          rationale: "VIF > 10 indicates multicollinearity; primary proxy for causal insufficiency"
+      description: Maps parameter instability and multicollinearity to causal insufficiency risk
+    NonlinearityRisk:
+      alpha: -1.5
+      alpha_std: 0.3
+      sigma: 0.15
+      sigma_family: 0.2
+      n_samples: 0
+      note: "Current diagnostics (binned MI, univariate ΔRMSE) have limited discriminative power for cross-variable nonlinearity. Low weights until lagged cross-prediction test is implemented."
+      diagnostic_weights:
+        fraction_nonlinear_pairs:
+          weight: 0.0
+          rationale: "Disabled: binned MI estimator has positive bias (~0.4 bits) that makes fraction_nonlinear=1.0 even for linear data"
+        mean_delta_rmse:
+          weight: 5.0
+          rationale: "Only fires when RF genuinely outperforms linear AR (positive values only); currently 0 for all atlas families"
+      description: Maps nonlinearity diagnostics to risk (limited by current estimator quality)
+    SeasonalityRisk:
+      alpha: -2.0
+      alpha_std: 0.3
+      sigma: 0.15
+      sigma_family: 0.2
+      n_samples: 0
+      note: "Spectral ratio and fraction with seasonality are primary signals"
+      diagnostic_weights:
+        mean_spectral_ratio:
+          weight: 4.0
+          rationale: "High spectral peak ratio indicates strong periodic component"
+        fraction_with_seasonality:
+          weight: 3.0
+          rationale: "Fraction of variables with detected seasonality"
+        fraction_with_trend:
+          weight: 2.0
+          rationale: "Deterministic trends violate stationarity assumption"
+      description: Maps spectral and trend diagnostics to seasonality risk

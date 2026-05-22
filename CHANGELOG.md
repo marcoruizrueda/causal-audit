@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.2 (2026-05-13)
+## v0.3.2 (2026-05-14)
 
 ### Terminology
 
@@ -10,10 +10,31 @@
 
 - **Empty "Suggested action:" in `prediscovery_summary` figure**: When risk scores fell in moderate ranges (e.g., Nonstationarity 0.30–0.59, Confounding 0.30–0.44) none of the conditional branches fired, leaving the suggestion section blank. Replaced with a comprehensive accumulator covering all risk dimensions (including Seasonality, Persistence, Irregularity) with a guaranteed fallback.
 
+- **NonlinearityRisk extraction bug (critical)**: The quantifier looked for `fraction_nonlinear` at the top level of `pairwise_nonlinearity` dict, but the auditor stores it under `summary.fraction_nonlinear`. This caused NonlinearityRisk=0.182 (sigmoid of intercept) for ALL datasets regardless of actual nonlinearity. Fixed to read from `summary` subdict.
+
+- **SeasonalityRisk/NonlinearityRisk always 0.182**: The `calib_v2.yaml` had no entries for these two risks, causing the quantifier to use empty weight dicts (all weights=0). Added calibration parameters for both risks.
+
+- **mean_delta_rmse clipping**: Previously clipped negative ΔRMSE values to 0, discarding the signal. Now correctly uses only positive values (RF outperforming linear) as evidence of nonlinearity.
+
+### Calibration Changes
+
+- **Added NonlinearityRisk calibration** (`calib_v2.yaml`): `alpha=-1.5`, `fraction_nonlinear_pairs` weight=0.0 (disabled due to MI estimator bias), `mean_delta_rmse` weight=5.0.
+- **Added SeasonalityRisk calibration** (`calib_v2.yaml`): `alpha=-2.0`, `mean_spectral_ratio` weight=4.0, `fraction_with_seasonality` weight=3.0, `fraction_with_trend` weight=2.0.
+- **Reduced ConfoundingRisk Chow weight** from 2.0 to 1.0 (Chow test measures parameter instability/nonstationarity, not confounding). Increased VIF weight from 0.5 to 1.0.
+
+### Recommender
+
+- **Added VARLiNGAM to recommendation space**: When NonlinearityRisk is low, ConfoundingRisk is low, NonstationarityRisk is low, and IrregularityRisk < 0.40, VARLiNGAM is recommended (exploits non-Gaussianity for full DAG identifiability; Shimizu et al., 2006). Falls back to PCMCI+ when irregularity is high (VARLiNGAM needs complete data).
+
 ### Plotting
 
 - Added visible legend (lower right, semi-transparent background) to subplot (d) in `prediscovery_summary` for the nonlinearity scatter (red = nonlinear, blue = linear pairs).
 - Inline comments added at key locations (`b_quantifier.py`, `c_recommender.py`, `figures.py`, `causal_audit_adapter.py`) documenting that `ConfoundingRisk` is displayed as "Causal insufficiency" and represents proxy indicators, not a detection of latent confounders.
+
+### Known Limitations
+
+- **NonlinearityRisk remains at baseline (0.18) for all DGP-Atlas families** because: (1) the binned MI estimator has positive bias making `fraction_nonlinear_pairs` unreliable, and (2) the univariate ΔRMSE test measures autoregressive nonlinearity, not cross-variable polynomial dependencies. A lagged cross-prediction test is needed (future work).
+- **ConfoundingRisk=0.22 for F5 (latent confounders)**: VIF/Chow diagnostics cannot detect stationary latent confounders with constant effect. This is a fundamental identifiability limitation, not a calibration issue.
 
 ## v0.3.1 (2026-05-12)
 

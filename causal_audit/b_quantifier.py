@@ -289,18 +289,32 @@ class RiskQuantifier:
         }
 
         pairwise_nl = diagnostics_dict.get("pairwise_nonlinearity", {})
-        if isinstance(pairwise_nl, dict) and "fraction_nonlinear" in pairwise_nl:
-            nonlin_diags["fraction_nonlinear_pairs"] = float(
-                pairwise_nl.get("fraction_nonlinear", 0.0)
-            )
+        if isinstance(pairwise_nl, dict):
+            # The auditor stores fraction_nonlinear under "summary" subdict
+            summary = pairwise_nl.get("summary", {})
+            if "fraction_nonlinear" in summary:
+                nonlin_diags["fraction_nonlinear_pairs"] = float(
+                    summary.get("fraction_nonlinear", 0.0)
+                )
+            elif "fraction_nonlinear" in pairwise_nl:
+                # Backward compat: flat structure
+                nonlin_diags["fraction_nonlinear_pairs"] = float(
+                    pairwise_nl.get("fraction_nonlinear", 0.0)
+                )
 
         basic_nl = diagnostics_dict.get("nonlinearity", {})
         delta_rmse_vals = []
         for var, stats in basic_nl.items():
             if isinstance(stats, dict) and "delta_rmse_relative" in stats:
-                delta_rmse_vals.append(max(0.0, stats["delta_rmse_relative"]))
+                # Positive delta = RF better than linear = nonlinear signal
+                # Negative delta = linear adequate = no nonlinearity
+                delta_rmse_vals.append(stats["delta_rmse_relative"])
         if delta_rmse_vals:
-            nonlin_diags["mean_delta_rmse"] = float(np.mean(delta_rmse_vals))
+            # Use mean of positive values only (evidence of nonlinearity)
+            positive_deltas = [d for d in delta_rmse_vals if d > 0]
+            nonlin_diags["mean_delta_rmse"] = (
+                float(np.mean(positive_deltas)) if positive_deltas else 0.0
+            )
 
         extracted["NonlinearityRisk"] = nonlin_diags
 

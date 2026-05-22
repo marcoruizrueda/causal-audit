@@ -2302,7 +2302,7 @@ def plot_framework_architecture(output_path: Optional[str] = None) -> str:
     # Add input and output
     ax.text(
         0.05,
-        0.5,
+        0.3,
         "INPUT:\nTime Series\nData",
         ha="center",
         va="center",
@@ -2313,7 +2313,7 @@ def plot_framework_architecture(output_path: Optional[str] = None) -> str:
 
     ax.text(
         0.95,
-        0.5,
+        0.7,
         "OUTPUT:\nMethod\nRecommendation\n+ Risk Profile",
         ha="center",
         va="center",

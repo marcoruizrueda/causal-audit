@@ -532,15 +532,44 @@ class MethodRecommender:
                 warnings=abstention_warnings,
             )
 
-        # Low risk, linear, no confounders, no seasonality → PCMCI+(ParCorr) is optimal
+        # Low risk, linear, no confounders, no seasonality → VARLiNGAM preferred
+        # (exploits non-Gaussianity for full DAG identifiability; Shimizu et al., 2006)
+        # VARLiNGAM requires: stationarity, no latent confounders, non-Gaussian residuals.
+        # When these hold, it provides strictly more information than PCMCI+ (full DAG vs CPDAG).
+        # Fall back to PCMCI+ if irregularity is high (VARLiNGAM needs complete data).
+        irreg_mean = risks["IrregularityRisk"]["mean"]
+        if irreg_mean < 0.40:
+            return self._create_recommendation_policy(
+                risk_profile=risk_profile,
+                method="VARLiNGAM",
+                confidence=round(data_driven_confidence, 2),
+                reason=(
+                    f"Low risk profile (nonlin={nonlin_mean:.2f}, confound={confound_mean:.2f}, "
+                    f"seasonal={seasonal_mean:.2f}, nonstat={nonstat_mean:.2f}, irreg={irreg_mean:.2f}): "
+                    f"linear, stationary data with complete observations. VARLiNGAM recommended "
+                    f"for full DAG identifiability via non-Gaussianity."
+                ),
+                method_config={
+                    "varlingam": {"enabled": True},
+                    "pcmci": {
+                        "enabled": True,
+                        "test_method": "parcorr",
+                        "allow_contemporaneous": True,
+                        "note": "validation baseline",
+                    },
+                    "granger": {"enabled": True, "note": "fast linear baseline"},
+                },
+                warnings=abstention_warnings,
+            )
+
+        # High irregularity but otherwise low risk → PCMCI+ (handles missing data)
         return self._create_recommendation_policy(
             risk_profile=risk_profile,
             method="PCMCI+",
             confidence=round(data_driven_confidence, 2),
             reason=(
-                f"Low risk profile (nonlin={nonlin_mean:.2f}, confound={confound_mean:.2f}, "
-                f"seasonal={seasonal_mean:.2f}, nonstat={nonstat_mean:.2f}): "
-                f"linear Gaussian data. PCMCI+(ParCorr) recommended for best FDR control."
+                f"Low risk profile but IrregularityRisk={irreg_mean:.2f} > 0.40: "
+                f"missing data present. PCMCI+(ParCorr) recommended (robust to gaps)."
             ),
             method_config={
                 "pcmci": {
