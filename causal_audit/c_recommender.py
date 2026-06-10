@@ -325,6 +325,106 @@ class MethodRecommender:
         )
 
         # Step 3: Make decision
+        # Step 3a: Data-driven preprocessing/CI-test branches override the simple
+        # admissibility decision. These branches inspect the corrected risks
+        # (seasonality, nonlinearity, irregularity) which the calibrated logistic
+        # could not produce reliably and which the override in Module B fills in.
+        # When any of these branches matches, return the rich method_config that
+        # specifies test_method and preprocessing flags so that downstream
+        # consumers (autocause workflow) can act on the recommendation.
+        if pcmci_admissible:
+            nonlin_pre = risks["NonlinearityRisk"]["mean"]
+            seasonal_pre = risks["SeasonalityRisk"]["mean"]
+            confound_pre = risks["ConfoundingRisk"]["mean"]
+            irreg_pre = risks["IrregularityRisk"]["mean"]
+            persist_pre = risks["PersistenceRisk"]["mean"]
+            nonstat_pre = risks["NonstationarityRisk"]["mean"]
+
+            base_conf = 0.90
+            conf_pen = (
+                0.15 * min(nonlin_pre, 1.0)
+                + 0.10 * min(confound_pre, 1.0)
+                + 0.10 * min(persist_pre, 1.0)
+                + 0.05 * min(nonstat_pre, 1.0)
+                + 0.05 * min(seasonal_pre, 1.0)
+            )
+            data_conf = max(0.40, base_conf - conf_pen)
+
+            # Seasonality dominates: PCMCI+ ParCorr on detrended residuals.
+            # Trigger when SeasonalityRisk is elevated regardless of the
+            # admissibility of Granger, because the deseasonalize flag is the
+            # action that recovers the assumption for either method.
+            if seasonal_pre > 0.30:
+                method_config = {
+                    "pcmci": {
+                        "enabled": True,
+                        "test_method": "parcorr",
+                        "allow_contemporaneous": True,
+                    },
+                    "granger": {"enabled": True, "note": "linear baseline"},
+                    "preprocessing": {"deseasonalize": True},
+                }
+                return self._create_recommendation_policy(
+                    risk_profile=risk_profile,
+                    method="PCMCI+",
+                    confidence=round(data_conf, 2),
+                    reason=(
+                        f"SeasonalityRisk={seasonal_pre:.2f} > 0.30: deterministic trend "
+                        f"or seasonal components detected. Deseasonalize before discovery; "
+                        f"PCMCI+(ParCorr) on residuals recommended."
+                    ),
+                    method_config=method_config,
+                    warnings=abstention_warnings,
+                )
+
+            # Nonlinearity dominates: PCMCI+ with CMIknn (and absolute knn=10
+            # at low-T regimes per the canonical tigramite guidance).
+            if nonlin_pre > 0.35:
+                method_config = {
+                    "pcmci": {
+                        "enabled": True,
+                        "test_method": "cmiknn",
+                        "knn": 10,
+                        "allow_contemporaneous": True,
+                    },
+                    "transfer_entropy": {"enabled": True},
+                    "granger": {"enabled": True, "note": "linear baseline only"},
+                }
+                return self._create_recommendation_policy(
+                    risk_profile=risk_profile,
+                    method="PCMCI+",
+                    confidence=round(data_conf, 2),
+                    reason=(
+                        f"NonlinearityRisk={nonlin_pre:.2f} > 0.35: nonlinear dependencies "
+                        f"detected. PCMCI+(CMIknn) recommended."
+                    ),
+                    method_config=method_config,
+                    warnings=abstention_warnings,
+                )
+
+            # Irregularity dominates: pre-discovery imputation + ParCorr.
+            if irreg_pre > 0.40:
+                method_config = {
+                    "pcmci": {
+                        "enabled": True,
+                        "test_method": "parcorr",
+                        "allow_contemporaneous": True,
+                    },
+                    "granger": {"enabled": True, "note": "linear baseline"},
+                    "preprocessing": {"impute_missing": True},
+                }
+                return self._create_recommendation_policy(
+                    risk_profile=risk_profile,
+                    method="PCMCI+",
+                    confidence=round(data_conf, 2),
+                    reason=(
+                        f"IrregularityRisk={irreg_pre:.2f} > 0.40: missing data detected. "
+                        f"Linear interpolation before discovery; PCMCI+(ParCorr) recommended."
+                    ),
+                    method_config=method_config,
+                    warnings=abstention_warnings,
+                )
+
         if not pcmci_admissible and not granger_admissible:
             if not force_proceed:
                 return self._create_abstention_policy(

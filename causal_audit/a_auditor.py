@@ -151,6 +151,24 @@ class AssumptionAuditor:
             provenance=provenance,
         )
 
+    def _audit_with_data(self, df, metadata=None):
+        """Internal helper used by RiskAwareGatekeeper to retain a numpy view of
+        the data for downstream diagnostics that the calibrated logistic does
+        not cover (notably the Spearman-Pearson nonlinearity override).
+
+        The view is attached as a non-serialized attribute and excluded from
+        ``to_dict``/JSON output by the dataclass.
+        """
+        evidence = self.audit(df, metadata=metadata)
+        try:
+            arr = df.select_dtypes(include=[np.number]).to_numpy(
+                dtype=float, copy=False
+            )
+            object.__setattr__(evidence, "_data_array", arr)
+        except Exception:
+            pass
+        return evidence
+
     def check_stationarity(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
         Check stationarity via ADF, KPSS, and structural breaks.

@@ -132,7 +132,7 @@ class RiskAwareGatekeeper:
 
         # Phase 1: Audit (Module A)
         print("Phase 1/3: Running assumption audit...")
-        audit_evidence = self.auditor.audit(data, metadata)
+        audit_evidence = self.auditor._audit_with_data(data, metadata)
 
         # Validate and save
         validate_audit_evidence(audit_evidence.to_dict())

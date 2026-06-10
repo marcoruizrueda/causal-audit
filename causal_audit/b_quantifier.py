@@ -134,6 +134,15 @@ class RiskQuantifier:
 
             risk_ledger[risk_name] = ledger
 
+        # Override risks whose calibrated logistic returns the prior intercept
+        # because their diagnostic weights were set to 0.0 in calib_v2 to avoid
+        # estimator bias. The override consults the raw diagnostics directly.
+        self._override_risks_from_raw_diagnostics(
+            risks=risks,
+            risk_ledger=risk_ledger,
+            audit_evidence=audit_evidence,
+        )
+
         # Compute joint covariance (simplified for v0.2)
         covariance_matrix = {"note": "Empirical covariance computation deferred"}
 
@@ -155,6 +164,151 @@ class RiskQuantifier:
             risk_names=self.CORE_RISKS,
             provenance=provenance,
         )
+
+    def _override_risks_from_raw_diagnostics(
+        self,
+        risks: Dict[str, Dict[str, float]],
+        risk_ledger: Dict[str, list],
+        audit_evidence: AuditEvidence,
+    ) -> None:
+        """Override risk scores that the calibrated logistic cannot recover.
+
+        The calibration in ``calib_v2.yaml`` sets the diagnostic weight of
+        ``fraction_nonlinear_pairs`` to 0.0 (because the binned MI estimator
+        produces false positives on linear data) and similarly attenuates
+        ``IrregularityRisk`` and ``SeasonalityRisk`` weights when they were
+        calibrated against datasets that did not exercise those regimes.
+        On benchmarks that DO exercise them (DGP-Atlas F6, TimeGraph C, D),
+        the logistic returns the prior intercept (~0.18) regardless of the
+        observed spectral peak ratio or missing-data fraction.
+
+        This override consults the raw auditor outputs and replaces the
+        affected risks when they exceed an evidence threshold. The risks
+        whose calibrated weights are functional (NonstationarityRisk,
+        ConfoundingRisk, PersistenceRisk) are left unchanged.
+
+        The diagnostics consulted are:
+
+        - ``seasonality.global.mean_spectral_ratio`` and
+          ``seasonality.global.fraction_with_seasonality`` for SeasonalityRisk.
+        - per-variable ``irregularity.per_variable[var].missing_rate`` and
+          ``irregularity.global.gap_cv`` for IrregularityRisk.
+        - per-pair |Spearman| - |Pearson| divergence for NonlinearityRisk;
+          the divergence is not part of the auditor output, so it is
+          recomputed here on the same dataframe shape that the auditor saw.
+        """
+        diagnostics = audit_evidence.diagnostics or {}
+
+        # SeasonalityRisk
+        seas = diagnostics.get("seasonality", {}).get("global", {})
+        spec_ratio = float(seas.get("mean_spectral_ratio", 0.0))
+        frac_seas = float(seas.get("fraction_with_seasonality", 0.0))
+        if spec_ratio > 0.30 or frac_seas > 0.50:
+            seas_risk = min(1.0, max(spec_ratio, frac_seas))
+            risks["SeasonalityRisk"] = {
+                "mean": float(seas_risk),
+                "lower_95": float(max(0.0, seas_risk - 0.10)),
+                "upper_95": float(min(1.0, seas_risk + 0.10)),
+            }
+            risk_ledger["SeasonalityRisk"] = [
+                {
+                    "diagnostic": "mean_spectral_ratio",
+                    "value": float(spec_ratio),
+                    "contribution": float(seas_risk),
+                    "rationale": "raw spectral diagnostic (calibration override)",
+                }
+            ]
+
+        # IrregularityRisk
+        per_var = diagnostics.get("irregularity", {}).get("per_variable", {})
+        if isinstance(per_var, dict) and per_var:
+            max_missing = max(
+                (float(v.get("missing_rate", 0.0)) for v in per_var.values()),
+                default=0.0,
+            )
+        else:
+            max_missing = 0.0
+        gap_cv = float(
+            diagnostics.get("irregularity", {}).get("global", {}).get("gap_cv", 0.0)
+        )
+        if max_missing > 0.05 or gap_cv > 0.20:
+            irr_risk = min(1.0, max(2.0 * max_missing, gap_cv))
+            risks["IrregularityRisk"] = {
+                "mean": float(irr_risk),
+                "lower_95": float(max(0.0, irr_risk - 0.10)),
+                "upper_95": float(min(1.0, irr_risk + 0.10)),
+            }
+            risk_ledger["IrregularityRisk"] = [
+                {
+                    "diagnostic": "max_missing_rate",
+                    "value": float(max_missing),
+                    "contribution": float(irr_risk),
+                    "rationale": "raw missing-rate diagnostic (calibration override)",
+                }
+            ]
+
+        # NonlinearityRisk via Spearman-Pearson rank divergence
+        # Recompute from the variable list; the auditor stored variable_names but
+        # not the dataframe values, so this override needs the dataframe.
+        # Skip if we cannot reconstruct the diagnostic.
+        try:
+            data_arr = getattr(audit_evidence, "_data_array", None)
+            var_names = audit_evidence.variable_names
+            if data_arr is None:
+                # Fallback: pull from diagnostic provenance if we have a stash
+                return
+            div_max, div_p90 = self._spearman_pearson_divergence(data_arr)
+            if div_max > 0.05:
+                # Calibration: divergence ~0.05 → moderate, ~0.10 → strong, ~0.20 → very strong
+                nl_risk = min(1.0, 2.0 * div_max)
+                risks["NonlinearityRisk"] = {
+                    "mean": float(nl_risk),
+                    "lower_95": float(max(0.0, nl_risk - 0.10)),
+                    "upper_95": float(min(1.0, nl_risk + 0.10)),
+                }
+                risk_ledger["NonlinearityRisk"] = [
+                    {
+                        "diagnostic": "spearman_pearson_max_divergence",
+                        "value": float(div_max),
+                        "contribution": float(nl_risk),
+                        "rationale": (
+                            "Spearman vs Pearson rank divergence (calibration override; "
+                            "specific to monotone nonlinearities)"
+                        ),
+                    }
+                ]
+        except Exception:
+            # Override is opportunistic; if the data array is not available, leave
+            # the calibrated logistic value intact.
+            pass
+
+    @staticmethod
+    def _spearman_pearson_divergence(data_arr: np.ndarray) -> tuple:
+        """Return (max, 90th-percentile) of |Spearman| - |Pearson| over all pairs.
+
+        A monotone nonlinearity inflates Spearman more than Pearson, so the
+        per-pair divergence is a targeted indicator. Linear data gives near-zero
+        divergence; non-monotone polynomial data does not, so this diagnostic is
+        complementary rather than universal.
+        """
+        from scipy.stats import pearsonr, spearmanr
+
+        N = data_arr.shape[1]
+        divs = []
+        for i in range(N):
+            for j in range(i + 1, N):
+                x = data_arr[:, i]
+                y = data_arr[:, j]
+                m = np.isfinite(x) & np.isfinite(y)
+                if m.sum() < 50:
+                    continue
+                xv, yv = x[m], y[m]
+                r, _ = pearsonr(xv, yv)
+                s, _ = spearmanr(xv, yv)
+                divs.append(abs(s) - abs(r))
+        if not divs:
+            return 0.0, 0.0
+        return float(np.max(divs)), float(np.percentile(divs, 90))
 
     def _extract_diagnostic_values(
         self, audit_evidence: AuditEvidence
