@@ -27,3 +27,6 @@ fluxnet_validation/
 tests/
 causaltime_validation/
 docs/
+
+# AppleDouble (exFAT filesystem)
+._*
