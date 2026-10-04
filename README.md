@@ -19,11 +19,54 @@ A framework for risk assessment of assumption violations in time-series causal d
 
 ## Installation
 
+### Users
+
+Install the released package with `uv` (recommended) or `pip`:
+
 ```bash
+uv pip install causal-audit
+# or
+pip install causal-audit
+```
+
+Optional extras pull in the figure and graph dependencies:
+
+```bash
+uv pip install "causal-audit[viz]"     # IEEE-style figures (SciencePlots)
+uv pip install "causal-audit[graphs]"  # dependency network via tigramite
+uv pip install "causal-audit[all]"     # viz + graphs + earth-observation helpers
+```
+
+The package installs as `causal-audit` and imports as `causal_audit`.
+
+### Contributors
+
+Clone the repository and install an editable copy into a fresh environment:
+
+```bash
+git clone https://github.com/marcoruizrueda/causal-audit.git
+cd causal-audit
 uv venv .venv --python 3.13
 source .venv/bin/activate
 uv pip install -e .
 ```
+
+## Quickstart
+
+```python
+import pandas as pd
+from causal_audit import RiskAwareGatekeeper
+
+# DataFrame with a DatetimeIndex and one column per variable
+df = pd.read_csv("data.csv", index_col=0, parse_dates=True)
+
+gk = RiskAwareGatekeeper(random_seed=42)
+result = gk.analyze(data=df, output_dir="results/")
+print(result["policy"].decision)  # "recommend" or "abstain"
+print(result["policy"].recommended_method)  # e.g. "PCMCI+" or "LPCMCI"
+```
+
+See [Usage](#usage) for the per-stage API.
 
 ## Usage
 
@@ -31,30 +74,30 @@ Input: a `pandas.DataFrame` with a `DatetimeIndex`, one column per variable, `Na
 
 ```python
 import pandas as pd
-from causal_audit import AssumptionAuditor   # Stage I
-from causal_audit import RiskQuantifier      # Stage II
-from causal_audit import MethodRecommender   # Stage III
-from causal_audit import RiskAwareGatekeeper # Stages I → II → III
+from causal_audit import AssumptionAuditor  # Stage I
+from causal_audit import RiskQuantifier  # Stage II
+from causal_audit import MethodRecommender  # Stage III
+from causal_audit import RiskAwareGatekeeper  # Stages I → II → III
 
 df = pd.read_csv("data.csv", index_col=0, parse_dates=True)
 
 # Stage I — diagnostics (stationarity, irregularity, persistence, nonlinearity, confounding)
 auditor = AssumptionAuditor(alpha=0.05)
-evidence = auditor.audit(df)               # → AuditEvidence with per-variable effect sizes
+evidence = auditor.audit(df)  # → AuditEvidence with per-variable effect sizes
 
 # Stage II — calibrated risk scores with 95 % credible intervals
 quantifier = RiskQuantifier()
-risk_profile = quantifier.quantify(evidence) # → RiskProfile (6 risks, CrI, ledger)
+risk_profile = quantifier.quantify(evidence)  # → RiskProfile (6 risks, CrI, ledger)
 
 # Stage III — recommend a method or abstain
 recommender = MethodRecommender()
-policy, scorecard = recommender.recommend(risk_profile) # → Policy + Scorecard
+policy, scorecard = recommender.recommend(risk_profile)  # → Policy + Scorecard
 
 # Or run all three stages at once:
 gk = RiskAwareGatekeeper(random_seed=42)
 result = gk.analyze(data=df, output_dir="results/")
-print(result["policy"].decision)           # "recommend" or "abstain"
-print(result["policy"].recommended_method) # "PCMCI+" or "LPCMCI"
+print(result["policy"].decision)  # "recommend" or "abstain"
+print(result["policy"].recommended_method)  # "PCMCI+" or "LPCMCI"
 ```
 
 Stage I can be used alone for structured assumption auditing in individual studies. The full pipeline adds calibrated risk estimation and decision support.
@@ -138,6 +181,7 @@ def check_measurement_noise(self, df):
         # e.g. ratio of high-frequency variance to total variance
         results[col] = {"hf_variance_ratio": float(...)}
     return results
+
 
 # In audit():
 diagnostics["measurement_noise"] = self.check_measurement_noise(df)
