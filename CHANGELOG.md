@@ -95,7 +95,7 @@
 
 - **Method-specific `method_config`**: Recommendations include a `method_config` dict for AutoCause's `run_causal_discovery_workflow`.
 
-**Module C (Recommender) — Abstention fixes**
+**Module C (Recommender): Abstention fixes**
 
 - `ConfoundingRisk`, `IrregularityRisk`, `NonlinearityRisk` excluded from `HIGH_UNCERTAINTY` abstention check.
 - `LOW_T_EFF_RATIO` demoted from abstention to warning.
@@ -160,17 +160,17 @@ The calibration parameters in calib_v2.yaml map diagnostic values to risk scores
 
 The diagnostics themselves (fraction_nonlinear_pairs, delta_rmse, seasonality_ratio) are already normalized to [0,1] or near-zero for linear data.
 The decision thresholds in the recommender (0.35 for NonlinearityRisk) were set based on the observed distribution of values across TimeGraph categories, not from the DGP-Atlas calibration.
-The DGP-Atlas calibration was for the four existing risks. Adding a fifth risk with default weights doesn't invalidate the existing calibration — it just means NonlinearityRisk uses uninformative priors until recalibrated.
+The DGP-Atlas calibration was for the four existing risks. Adding a fifth risk with default weights doesn't invalidate the existing calibration. It just means NonlinearityRisk uses uninformative priors until recalibrated.
 Recalibration would be needed if you want NonlinearityRisk to be well-calibrated in the probabilistic sense (i.e., NonlinearityRisk=0.6 should mean "60% of methods will fail due to nonlinearity"). Currently it's an ordinal score, not a calibrated probability. For the paper, this is acceptable since we use it as a threshold, not as a probability.
 
 3. Are the abstentions because of missing checks in causal-audit?
 Partially. The abstentions on C1/C2/D3/D3C were caused by three interacting issues, two of which are missing checks and one is a design flaw:
 
-Missing check 1: No seasonality-aware VIF computation. The ConfoundingRisk computation uses VIF (Variance Inflation Factor). For seasonal data, variables share a common seasonal component, which creates near-perfect multicollinearity (VIF → ∞). This is not confounding — it's a shared deterministic component. A seasonality-aware VIF would partial out the seasonal component before computing VIF. Without this, ConfoundingRisk=1.0 for all seasonal categories, which is a false positive.
+Missing check 1: No seasonality-aware VIF computation. The ConfoundingRisk computation uses VIF (Variance Inflation Factor). For seasonal data, variables share a common seasonal component, which creates near-perfect multicollinearity (VIF → ∞). This is not confounding; it's a shared deterministic component. A seasonality-aware VIF would partial out the seasonal component before computing VIF. Without this, ConfoundingRisk=1.0 for all seasonal categories, which is a false positive.
 
-Missing check 2: No distinction between seasonal autocorrelation and unit-root persistence. PersistenceRisk=1.0 for C1 because the integral autocorrelation time is ~45 lags (seasonal period). But PCMCI+ is specifically designed for autocorrelated time series — high persistence is not a reason to abstain, it's a reason to use a larger tau_max. The abstention logic treated PersistenceRisk=1.0 as catastrophic when it should be informative.
+Missing check 2: No distinction between seasonal autocorrelation and unit-root persistence. PersistenceRisk=1.0 for C1 because the integral autocorrelation time is ~45 lags (seasonal period). But PCMCI+ is specifically designed for autocorrelated time series, so high persistence is not a reason to abstain. It is a reason to use a larger tau_max. The abstention logic treated PersistenceRisk=1.0 as catastrophic when it should be informative.
 
-Design flaw: Abstention thresholds calibrated on DGP-Atlas (stationary data). The DGP-Atlas benchmark has no seasonal categories. The thresholds (NonstationarityRisk > 0.85, composite > 0.90) were calibrated on data where these values genuinely indicate failure. On seasonal data, these values are routinely exceeded without method failure (after detrending). The thresholds need to be recalibrated on a benchmark that includes seasonal data — which TimeGraph now provides.
+Design flaw: Abstention thresholds calibrated on DGP-Atlas (stationary data). The DGP-Atlas benchmark has no seasonal categories. The thresholds (NonstationarityRisk > 0.85, composite > 0.90) were calibrated on data where these values genuinely indicate failure. On seasonal data, these values are routinely exceeded without method failure (after detrending). The thresholds need to be recalibrated on a benchmark that includes seasonal data, which TimeGraph now provides.
 
 28/28 (100%) acceptable recommendations on both TimeGraph and DGP-Atlas.
 
@@ -213,4 +213,4 @@ All 18 TimeGraph categories now have updated causal-audit v0.3.0 outputs:
 18/18 recommend with PCMCI+ or LPCMCI
 C1/C2/D3/D3C correctly get PCMCI+ at 65% confidence (lower confidence reflects the high NonstationarityRisk=1.0, signaling that detrending is needed before running)
 A1C/B1C correctly get LPCMCI (ConfoundingRisk > 0.45)
-SeasonalityRisk is consistently 0.182 across all categories — the spectral ratio test is not yet sensitive enough to distinguish C categories from others (the seasonal signal in TimeGraph C categories is in the trend+trigonometric components, not in a dominant spectral peak). This is a known limitation noted in the CHANGELOG.
+SeasonalityRisk is consistently 0.182 across all categories. The spectral ratio test is not yet sensitive enough to distinguish C categories from others (the seasonal signal in TimeGraph C categories is in the trend+trigonometric components, not in a dominant spectral peak). This is a known limitation noted in the CHANGELOG.

@@ -98,6 +98,7 @@ class RiskAwareGatekeeper:
         output_dir: str = "results/",
         force_proceed: bool = False,
         missing_value_codes: Optional[List] = None,
+        include_dependency_network: bool = False,
     ) -> Dict[str, Any]:
         """
         Run complete analysis pipeline.
@@ -111,6 +112,10 @@ class RiskAwareGatekeeper:
                           with explicit CRITICAL warnings (use with extreme caution!)
             missing_value_codes: Optional list of values to treat as missing (e.g., [-9999, -999])
                                 Common codes: FLUXNET=-9999, NASA POWER=-999, WMO=9999
+            include_dependency_network: Opt in to an exploratory PCMCI+ graph
+                                        on the raw data when the audit recommends.
+                                        Requires Tigramite. Disabled by default;
+                                        does not execute the recommended configuration.
 
         Returns:
             Dictionary with all outputs (audit_evidence, risk_profile, policy)
@@ -188,14 +193,15 @@ class RiskAwareGatekeeper:
             from .plotting import generate_all_figures
 
             print("Generating figures...")
-            generate_all_figures(
+            figure_paths = generate_all_figures(
                 data=data,
                 audit_evidence_dict=audit_evidence.to_dict(),
                 risk_profile_dict=risk_profile.to_dict(),
                 policy_dict=policy.to_dict(),
                 output_dir=Path(output_dir),
+                include_dependency_network=include_dependency_network,
             )
-            print("  ✓ Generated 7 figures (IEEE style, 300 DPI)")
+            print(f"  ✓ Generated {len(figure_paths)} figures (PDF + PNG, 300 DPI)")
 
         except Exception as e:
             print(f"  ⚠ Could not generate figures: {e}")
@@ -262,7 +268,7 @@ class RiskAwareGatekeeper:
 
             md += f"### {risk_name}\n\n"
             md += f"- **Mean**: {mean:.3f}\n"
-            md += f"- **95% CrI**: [{lower:.3f}, {upper:.3f}]\n"
+            md += f"- **Approximate uncertainty bounds**: [{lower:.3f}, {upper:.3f}]\n"
             md += f"- **Width**: {upper - lower:.3f}\n"
 
             # Risk ledger

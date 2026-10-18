@@ -617,13 +617,13 @@ class AssumptionAuditor:
 
     def check_pairwise_nonlinearity(self, df: pd.DataFrame) -> Dict[str, Any]:
         """
-        Pairwise nonlinearity detection between all variable pairs.
+        Descriptive pairwise dependence summaries (legacy method name).
 
-        For each pair (X, Y), compares mutual information (nonlinear dependence)
-        against squared Pearson correlation (linear dependence). A high MI/r²
-        ratio indicates nonlinear relationships that ParCorr would miss.
-
-        Returns per-pair diagnostics with a recommended CI test.
+        Binned mutual information has finite-sample bias and is not on the
+        same scale as squared correlation. Their ratio cannot classify
+        nonlinearity or select a CI test. Retain the estimates for inspection,
+        but return null for the retired classification fields. The separate
+        RF-versus-linear prediction diagnostic informs NonlinearityRisk.
         """
         from scipy.stats import pearsonr
 
@@ -632,10 +632,12 @@ class AssumptionAuditor:
         n_vars = len(numeric_cols)
 
         if n_vars < 2:
-            results["summary"] = {"n_pairs": 0, "fraction_nonlinear": 0.0}
+            results["summary"] = {
+                "n_pairs_tested": 0, "n_nonlinear": None,
+                "fraction_nonlinear": None, "recommended_ci_test": None,
+                "status": "insufficient_data",
+            }
             return results
-
-        n_nonlinear = 0
         n_tested = 0
 
         for i in range(n_vars):
@@ -644,11 +646,13 @@ class AssumptionAuditor:
                 y = df[numeric_cols[j]].values
 
                 # Pairwise complete observations
-                valid = ~(np.isnan(x) | np.isnan(y))
+                valid = np.isfinite(x) & np.isfinite(y)
                 if valid.sum() < 50:
                     continue
 
                 xv, yv = x[valid], y[valid]
+                if np.ptp(xv) == 0 or np.ptp(yv) == 0:
+                    continue
                 n_tested += 1
 
                 # Linear: Pearson r²
@@ -658,27 +662,24 @@ class AssumptionAuditor:
                 # Nonlinear proxy: binned mutual information estimate
                 mi = self._estimate_mi_binned(xv, yv)
 
-                # Ratio: MI / max(r², 0.01) — high ratio means nonlinear
+                # Retained for legacy consumers as a descriptive ratio only.
                 ratio = mi / max(r_squared, 0.01)
-                is_nonlinear = ratio > 2.0 and mi > 0.1
-
-                if is_nonlinear:
-                    n_nonlinear += 1
 
                 pair_key = f"{numeric_cols[i]}_{numeric_cols[j]}"
                 results["pairs"][pair_key] = {
                     "r_squared": float(r_squared),
                     "mi_estimate": float(mi),
                     "mi_r2_ratio": float(ratio),
-                    "is_nonlinear": is_nonlinear,
+                    "is_nonlinear": None,
                 }
 
-        fraction_nonlinear = n_nonlinear / max(n_tested, 1)
         results["summary"] = {
             "n_pairs_tested": n_tested,
-            "n_nonlinear": n_nonlinear,
-            "fraction_nonlinear": float(fraction_nonlinear),
-            "recommended_ci_test": "cmiknn" if fraction_nonlinear > 0.3 else "parcorr",
+            "n_nonlinear": None,
+            "fraction_nonlinear": None,
+            "recommended_ci_test": None,
+            "status": "descriptive_only" if n_tested else "insufficient_data",
+            "limitation": "Binned MI/r_squared is not a calibrated nonlinearity test.",
         }
 
         return results

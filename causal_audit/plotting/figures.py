@@ -41,7 +41,8 @@ def generate_all_figures(
     output_dir: Path,
     style: str = DEFAULT_STYLE,
     tau_max: int = 20,
-) -> None:
+    include_dependency_network: bool = False,
+) -> list[Path]:
     """
     Generate all pre-discovery figures.
 
@@ -61,10 +62,17 @@ def generate_all_figures(
         SciencePlots style. Options: "ieee", "science", "nature".
     tau_max : int
         Maximum lag for cross-correlation computation.
-    """
-    import matplotlib
+    include_dependency_network : bool
+        Opt in to exploratory PCMCI+ on raw data. Requires Tigramite and
+        is skipped if the audit abstains. Defaults to False.
 
-    matplotlib.use("Agg")
+    Returns
+    -------
+    list[Path]
+        PNG paths produced by this call (each also has a PDF).
+    """
+    # Respect the caller's backend, including a notebook's inline renderer.
+    # Saving and closing our figures does not require changing it globally.
     import matplotlib.pyplot as plt
 
     style_list = _resolve_style(style)
@@ -73,6 +81,7 @@ def generate_all_figures(
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     cols = data.select_dtypes(include=["number"]).columns.tolist()
+    generated = []
 
     def _ctx():
         if style_list:
@@ -84,6 +93,7 @@ def generate_all_figures(
     def _save(fig, name):
         fig.savefig(figures_dir / f"{name}.pdf", dpi=300, bbox_inches="tight")
         fig.savefig(figures_dir / f"{name}.png", dpi=300, bbox_inches="tight")
+        generated.append(figures_dir / f"{name}.png")
         plt.close(fig)
 
     with _ctx():
@@ -114,8 +124,14 @@ def generate_all_figures(
             data, cols, audit_evidence_dict, risk_profile_dict, _save
         )
 
-    with _ctx():
-        _plot_dependency_network(data, cols, audit_evidence_dict, _save)
+    if include_dependency_network:
+        if policy_dict.get("decision") == "abstain":
+            warnings.warn("Skipping exploratory discovery because the audit abstained.")
+        else:
+            with _ctx():
+                _plot_dependency_network(data, cols, audit_evidence_dict, _save)
+
+    return generated
 
 
 def _resolve_style(style: str):
@@ -142,6 +158,32 @@ def _resolve_style(style: str):
 # ==============================================================================
 
 
+def _plot_prediction_gain(ax, diagnostics):
+    """Display the existing time-split RF versus linear AR comparison.
+
+    This is a predictive effect size, not a calibrated hypothesis test or
+    evidence that individual causal edges are nonlinear.
+    """
+    entries = diagnostics.get("nonlinearity", {})
+    gains = {
+        name: stats["delta_rmse_relative"]
+        for name, stats in entries.items()
+        if isinstance(stats, dict)
+        and stats.get("delta_rmse_relative") is not None
+        and np.isfinite(stats["delta_rmse_relative"])
+    }
+    if gains:
+        names = list(gains)
+        values = [100 * gains[name] for name in names]
+        ax.barh(names, values, color="#377EB8", alpha=0.8)
+        ax.axvline(0, color="black", lw=0.6, ls="--")
+    else:
+        ax.text(0.5, 0.5, "Prediction diagnostic unavailable",
+                transform=ax.transAxes, ha="center", fontsize=8)
+    ax.set_xlabel("RF improvement over linear AR (%)", fontsize=8)
+    ax.tick_params(labelsize=7)
+
+
 def _plot_prediscovery_summary(
     data, cols, audit_evidence_dict, risk_profile_dict, policy_dict, figures_dir, _save
 ):
@@ -156,17 +198,17 @@ def _plot_prediscovery_summary(
         compute_acf = None
 
     risks = risk_profile_dict.get("risks", {})
-    rec = policy_dict.get("recommended_method", "N/A")
-    conf = policy_dict.get("confidence", 0) or 0
+    rec = policy_dict.get("recommended_method")
+    conf = policy_dict.get("confidence")
     n_vars = len(cols)
 
     RISK_NAMES = [
         "Nonstationarity",
         "Nonlinearity",
-        "Causal insufficiency",  # aka confounding proxy; measures multicollinearity/VIF, not latent confounders directly
+        "Confounding proxy",  # VIF/instability cannot identify hidden causes
         "Irregularity",
         "Persistence",
-        "Seasonality",
+        "Spectral/trend proxy",
     ]
     RISK_KEYS = [
         "NonstationarityRisk",
@@ -306,12 +348,12 @@ def _plot_prediscovery_summary(
         t_effs = [persistence.get(c, {}).get("t_eff", len(data)) for c in cols]
         mean_teff = np.mean(t_effs)
         ax_acf.text(
-            0.97,
+            0.03,
             0.95,
             f"Mean $T_{{eff}}$={mean_teff:.0f}",
             transform=ax_acf.transAxes,
             fontsize=7,
-            ha="right",
+            ha="left",
             va="top",
             bbox=dict(
                 boxstyle="round,pad=0.2", fc="white", ec="gray", lw=0.4, alpha=0.9
@@ -340,55 +382,10 @@ def _plot_prediscovery_summary(
         va="bottom",
     )
 
-    # -- (d) Nonlinearity scatter with diagnostic ratio --
+    # -- (d) Existing held-out predictive diagnostic, not biased MI/r^2 --
     ax_nl = fig.add_subplot(gs[2, 0])
-    pnl = audit_evidence_dict.get("diagnostics", {}).get("pairwise_nonlinearity", {})
-    pairs = pnl.get("pairs", {})
-    r2s = [v.get("r_squared", 0) for v in pairs.values()]
-    mis = [v.get("mi_estimate", 0) for v in pairs.values()]
-    nls = [str(v.get("is_nonlinear", False)).lower() == "true" for v in pairs.values()]
-    fn = pnl.get("summary", {}).get("fraction_nonlinear", 0)
-    ci_rec = pnl.get("summary", {}).get("recommended_ci_test", "parcorr")
-
-    if r2s:
-        cs = ["#E41A1C" if nl else "#377EB8" for nl in nls]
-        ax_nl.scatter(r2s, mis, c=cs, s=18, alpha=0.7, edgecolors="none")
-        lim = max(max(r2s, default=0.1), max(mis, default=0.1)) * 1.15
-        ax_nl.plot([0, lim], [0, lim], "k--", lw=0.5, alpha=0.4)
-        ax_nl.set_xlim(0, lim)
-        ax_nl.set_ylim(0, lim)
-    ax_nl.set_xlabel(r"Pearson $r^2$", fontsize=9)
-    ax_nl.set_ylabel("MI (bits)", fontsize=9)
-    ax_nl.tick_params(labelsize=8)
-    ax_nl.set_title(f"{fn:.0%} nonlinear | CI: {ci_rec.upper()}", fontsize=8, pad=4)
-    ax_nl.legend(
-        handles=[
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="w",
-                markerfacecolor="#E41A1C",
-                markersize=5,
-                label="Nonlinear",
-            ),
-            Line2D(
-                [0],
-                [0],
-                marker="o",
-                color="w",
-                markerfacecolor="#377EB8",
-                markersize=5,
-                label="Linear",
-            ),
-        ],
-        frameon=True,
-        fontsize=7,
-        loc="lower right",
-        fancybox=True,
-        framealpha=0.9,
-        edgecolor="#CCCCCC",
-    )
+    _plot_prediction_gain(ax_nl, audit_evidence_dict.get("diagnostics", {}))
+    ax_nl.set_title("Prediction diagnostic (time-split CV)", fontsize=8, pad=4)
     ax_nl.text(
         -0.02,
         1.06,
@@ -402,9 +399,10 @@ def _plot_prediscovery_summary(
     # -- (e) Recommendation summary --
     ax_rec = fig.add_subplot(gs[2, 1])
     ax_rec.axis("off")
+    abstained = policy_dict.get("decision") == "abstain"
     text_lines = [
-        f"Recommendation: {rec}",
-        f"Confidence: {conf:.0%}",
+        "Decision: ABSTAIN" if abstained else f"Recommendation: {rec or 'not assigned'}",
+        f"Policy score: {conf:.0%}" if conf is not None else "Policy score: not assigned",
         "",
         "Key findings:",
     ]
@@ -416,31 +414,36 @@ def _plot_prediscovery_summary(
 
     if not any(v >= 0.30 for v in vals):
         text_lines.append("  All risks low")
-        text_lines.append("  Proceed with standard analysis")
+        text_lines.append("  Review method assumptions")
 
     text_lines.append("")
     text_lines.append("Suggested action:")
     suggestions = []
     if vals[0] >= 0.60:
-        suggestions.append("  Detrend/deseasonalize before discovery")
+        suggestions.append("  Investigate unit roots, breaks, trends")
     elif vals[0] >= 0.30:
         suggestions.append("  Check stationarity; consider detrending")
     if vals[5] >= 0.60:
-        suggestions.append("  Remove seasonal component before discovery")
+        suggestions.append("  Check spectral peaks against trends")
     elif vals[5] >= 0.30:
         suggestions.append("  Account for seasonality (large tau_max)")
     if vals[1] >= 0.35:
         suggestions.append("  Use CMIknn (nonlinear CI test)")
     if vals[2] >= 0.45:
-        suggestions.append("  Use LPCMCI (latent confounders)")
+        suggestions.append("  Review confounding proxies with domain knowledge")
     elif vals[2] >= 0.30:
         suggestions.append("  Consider LPCMCI or include proxy variables")
     if vals[4] >= 0.50:
         suggestions.append("  Increase tau_max for persistent dependencies")
     if vals[3] >= 0.50:
         suggestions.append("  Regularize sampling or use gap-robust estimator")
+    if abstained:
+        suggestions = ["  Read scorecard; investigate flagged inputs",
+                       "  Re-audit after justified preprocessing"]
+    elif rec and rec != "N/A":
+        suggestions.insert(0, f"  Check {rec} assumptions")
     if not suggestions:
-        suggestions.append("  Use PCMCI+ with ParCorr")
+        suggestions.append("  Review the policy before selecting a method")
     text_lines.extend(suggestions)
 
     ax_rec.text(
@@ -470,9 +473,12 @@ def _plot_prediscovery_summary(
     )
 
     # Save
-    fig.savefig(figures_dir / "prediscovery_summary.pdf", dpi=300, bbox_inches="tight")
-    fig.savefig(figures_dir / "prediscovery_summary.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
+    if _save is not None:
+        _save(fig, "prediscovery_summary")
+    else:
+        fig.savefig(figures_dir / "prediscovery_summary.pdf", dpi=300, bbox_inches="tight")
+        fig.savefig(figures_dir / "prediscovery_summary.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
 
 
 # ==============================================================================
@@ -936,7 +942,7 @@ def _plot_assumption_deep_dive(
     ax.tick_params(labelsize=7)
     ax.legend(frameon=False, fontsize=6.5, ncol=2, loc="upper right")
     risk_val = risks.get("NonstationarityRisk", {}).get("mean", 0)
-    action = "Detrend or difference" if risk_val >= 0.4 else "No action needed"
+    action = "Investigate unit roots, breaks, trends" if risk_val >= 0.4 else "Review stationarity evidence"
     ax.set_title(f"(a) Nonstationarity [risk={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
@@ -952,62 +958,12 @@ def _plot_assumption_deep_dive(
         ),
     )
 
-    # -- (b) Nonlinearity: MI vs r^2 deviation from diagonal --
+    # -- (b) Held-out nonlinear versus linear prediction effect size --
     ax = fig.add_subplot(gs[0, 1])
-    pnl = diags.get("pairwise_nonlinearity", {})
-    pairs = pnl.get("pairs", {})
-    pair_names = list(pairs.keys())
-    deviations = []
-    for pname in pair_names:
-        p = pairs[pname]
-        r2 = p.get("r_squared", 0)
-        mi = p.get("mi_estimate", 0)
-        # Deviation: how much MI exceeds what r^2 would predict
-        deviations.append(max(0, mi - r2))
-
-    if deviations:
-        y_pos = np.arange(len(pair_names))
-        # Show top 6 pairs by deviation
-        sorted_idx = np.argsort(deviations)[::-1][: min(6, len(deviations))]
-        show_names = [pair_names[i][:10] for i in sorted_idx]
-        show_devs = [deviations[i] for i in sorted_idx]
-        show_nl = [
-            str(pairs[pair_names[i]].get("is_nonlinear", False)).lower() == "true"
-            for i in sorted_idx
-        ]
-        colors_b = ["#E41A1C" if nl else "#377EB8" for nl in show_nl]
-        y_pos = np.arange(len(show_names))
-        ax.barh(y_pos, show_devs, color=colors_b, height=0.5, alpha=0.8)
-        ax.set_yticks(y_pos)
-        ax.set_yticklabels(show_names, fontsize=7)
-        ax.set_xlabel("MI excess over $r^2$", fontsize=8)
-        # Legend for bar colors
-        from matplotlib.lines import Line2D as L2D
-
-        ax.legend(
-            handles=[
-                L2D([0], [0], color="#E41A1C", lw=4, alpha=0.8, label="Nonlinear pair"),
-                L2D([0], [0], color="#377EB8", lw=4, alpha=0.8, label="Linear pair"),
-            ],
-            frameon=True,
-            fontsize=6.5,
-            loc="lower right",
-            fancybox=True,
-            framealpha=0.85,
-            edgecolor="#CCCCCC",
-        )
-    else:
-        ax.text(
-            0.5,
-            0.5,
-            "No pairwise data",
-            transform=ax.transAxes,
-            ha="center",
-            fontsize=9,
-        )
+    _plot_prediction_gain(ax, diags)
     ax.tick_params(labelsize=7)
     risk_val = risks.get("NonlinearityRisk", {}).get("mean", 0)
-    action = "Use CMIknn CI test" if risk_val >= 0.35 else "ParCorr sufficient"
+    action = "Consider a nonlinear CI test" if risk_val >= 0.35 else "Review linearity assumptions"
     ax.set_title(f"(b) Nonlinearity [risk={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
@@ -1068,7 +1024,7 @@ def _plot_assumption_deep_dive(
         ],
         frameon=True,
         fontsize=6,
-        loc="lower right",
+        loc="upper right",
         fancybox=True,
         framealpha=0.85,
         edgecolor="#CCCCCC",
@@ -1084,7 +1040,7 @@ def _plot_assumption_deep_dive(
             color="#555555",
         )
     risk_val = risks.get("PersistenceRisk", {}).get("mean", 0)
-    action = "Increase tau_max or subsample" if risk_val >= 0.5 else "Standard tau_max"
+    action = "Assess lag horizon and effective information"
     ax.set_title(f"(c) Persistence [risk={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
@@ -1121,7 +1077,7 @@ def _plot_assumption_deep_dive(
         ax.set_yticks(y_pos)
         ax.set_yticklabels(vif_names, fontsize=7.5)
         ax.set_xlabel("VIF", fontsize=8)
-        ax.legend(frameon=False, fontsize=7, loc="lower right")
+        ax.legend(frameon=False, fontsize=7, loc="upper right")
     else:
         ax.text(
             0.5,
@@ -1133,8 +1089,8 @@ def _plot_assumption_deep_dive(
         )
     ax.tick_params(labelsize=7)
     risk_val = risks.get("ConfoundingRisk", {}).get("mean", 0)
-    action = "Use LPCMCI (latent vars)" if risk_val >= 0.45 else "Standard methods OK"
-    ax.set_title(f"(d) Causal insufficiency [risk={risk_val:.2f}]", fontsize=8, pad=3)
+    action = "Review VIF and instability with domain knowledge"
+    ax.set_title(f"(d) Confounding proxy [score={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
         0.02,
@@ -1187,11 +1143,11 @@ def _plot_assumption_deep_dive(
     ax.tick_params(labelsize=7)
     risk_val = risks.get("SeasonalityRisk", {}).get("mean", 0)
     action = (
-        "Deseasonalize before discovery"
+        "Check periodicity against stochastic trends"
         if risk_val >= 0.3
-        else "No deseasonalization needed"
+        else "Review spectral evidence"
     )
-    ax.set_title(f"(e) Seasonality [risk={risk_val:.2f}]", fontsize=8, pad=3)
+    ax.set_title(f"(e) Spectral/trend proxy [score={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
         0.02,
@@ -1234,7 +1190,7 @@ def _plot_assumption_deep_dive(
         ax.legend(
             frameon=True,
             fontsize=6.5,
-            loc="lower right",
+            loc="upper right",
             fancybox=True,
             framealpha=0.85,
             edgecolor="#CCCCCC",
@@ -1250,9 +1206,7 @@ def _plot_assumption_deep_dive(
         )
     ax.tick_params(labelsize=7)
     risk_val = risks.get("IrregularityRisk", {}).get("mean", 0)
-    action = (
-        "Impute or use robust methods" if risk_val >= 0.3 else "Missingness acceptable"
-    )
+    action = "Review sampling and missingness treatment"
     ax.set_title(f"(f) Irregularity [risk={risk_val:.2f}]", fontsize=8, pad=3)
     ax.text(
         0.02,
@@ -1272,9 +1226,11 @@ def _plot_assumption_deep_dive(
         "Assumption diagnostics: evidence and recommended actions",
         fontweight="bold",
         fontsize=10,
-        y=1.01,
+        y=0.99,
     )
-    plt.tight_layout()
+    # GridSpec already sets inter-panel spacing; tight_layout cannot reconcile
+    # those manually specified positions and emits a warning on every audit.
+    fig.subplots_adjust(top=0.94, bottom=0.08, left=0.12, right=0.97)
     _save(fig, "assumption_deep_dive")
 
 

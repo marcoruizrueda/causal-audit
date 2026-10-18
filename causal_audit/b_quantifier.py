@@ -3,7 +3,9 @@ Module B: Uncertainty Quantifier (FIXED VERSION)
 
 SCIENTIFIC FIX: Uses global diagnostic-to-risk parameters.
 
-Aggregate diagnostics into calibrated composite risk indices with posteriors.
+Aggregate diagnostics into diagnostic-derived scores with approximate bounds.
+The current execution path includes heuristic mappings and overrides; its
+diagnostic perturbations do not establish Bayesian posterior coverage.
 v0.2: Uses global parameters (works without family assignment).
 """
 
@@ -25,7 +27,7 @@ class RiskProfile:
     schema_version: str
     timestamp: str
 
-    # Core risks (posterior means + 95% CrI)
+    # Scores and approximate bounds (legacy keys: mean, lower_95, upper_95)
     risks: Dict[str, Dict[str, float]]  # {risk_name: {mean, lower, upper}}
 
     # Risk ledger (top-3 contributing diagnostics per risk)
@@ -48,7 +50,7 @@ class RiskProfile:
 
 class RiskQuantifier:
     """
-    Aggregate diagnostics into calibrated composite risk indices.
+    Aggregate diagnostics into scores using configured mappings and overrides.
 
     v0.2: Uses global parameters - works without family assignment!
     """
@@ -101,19 +103,19 @@ class RiskQuantifier:
         self, audit_evidence: AuditEvidence, bootstrap_samples: int = 100
     ) -> RiskProfile:
         """
-        Aggregate diagnostics into calibrated risk indices.
+        Aggregate diagnostics into scores with approximate uncertainty bounds.
 
         Args:
             audit_evidence: Output from Module A
             bootstrap_samples: Number of bootstrap samples for uncertainty
 
         Returns:
-            RiskProfile with posterior risk estimates
+            RiskProfile with scores, approximate bounds, and diagnostic contributors
         """
         # Extract specific diagnostic values (not aggregated!)
         diagnostic_values = self._extract_diagnostic_values(audit_evidence)
 
-        # Compute risk posteriors (mean + CrI)
+        # Compute scores and approximate bounds
         risks = {}
         risk_ledger = {}
 
@@ -434,8 +436,9 @@ class RiskQuantifier:
         }
 
         # NonlinearityRisk diagnostics — from pairwise_nonlinearity and basic nonlinearity
-        # Uses the RESET-based pairwise test (fraction of nonlinear pairs) and
-        # the univariate RF vs. linear ΔRMSE (average across variables).
+        # Uses univariate RF vs. linear ΔRMSE (average across variables).
+        # Legacy pairwise fractions are supported for old audit files. New
+        # audits leave that uncalibrated classification unavailable (None).
         # Seasonality is now a separate SeasonalityRisk dimension.
         nonlin_diags = {
             "fraction_nonlinear_pairs": 0.0,
@@ -446,11 +449,11 @@ class RiskQuantifier:
         if isinstance(pairwise_nl, dict):
             # The auditor stores fraction_nonlinear under "summary" subdict
             summary = pairwise_nl.get("summary", {})
-            if "fraction_nonlinear" in summary:
+            if summary.get("fraction_nonlinear") is not None:
                 nonlin_diags["fraction_nonlinear_pairs"] = float(
                     summary.get("fraction_nonlinear", 0.0)
                 )
-            elif "fraction_nonlinear" in pairwise_nl:
+            elif pairwise_nl.get("fraction_nonlinear") is not None:
                 # Backward compat: flat structure
                 nonlin_diags["fraction_nonlinear_pairs"] = float(
                     pairwise_nl.get("fraction_nonlinear", 0.0)
@@ -507,7 +510,10 @@ class RiskQuantifier:
         n_samples: int = 365,
     ) -> Tuple[float, float, float, List[Dict[str, Any]]]:
         """
-        Compute risk posterior using global parameters.
+        Compute a logistic score and diagnostic-perturbation bounds.
+
+        The legacy method name does not imply a Bayesian posterior. No data
+        resampling or fitted parameter posterior is used in this execution path.
 
         Formula: logit(risk) = alpha + sum(weight_i * diagnostic_i)
 
@@ -554,7 +560,7 @@ class RiskQuantifier:
         # Apply sigmoid
         risk_mean = expit(logit_score)
 
-        # Bootstrap for UI (resample diagnostic values)
+        # Approximate uncertainty from perturbing diagnostics, not resampling data
         bootstrap_risks = []
         for _ in range(bootstrap_samples):
             # Add noise to diagnostics (simplified bootstrap)

@@ -24,9 +24,15 @@ fluxnet_validation/
 paper_figures/
 timegraph_validation/
 fluxnet_validation/
-tests/
+/tests/*
+!/tests/test_nonlinearity_output.py
 causaltime_validation/
 docs/
+
+# Example run artifacts (regenerated on run)
+examples/quickstart_output/
+examples/walkthrough_output/
+examples/test_output/
 
 # AppleDouble (exFAT filesystem)
 ._*

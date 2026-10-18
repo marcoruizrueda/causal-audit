@@ -82,7 +82,8 @@ class Scorecard:
 
         if self.decision == "recommend":
             md += f"**Recommended Method**: {self.recommended_method}\n\n"
-            md += f"**Confidence**: {self.confidence:.2%}\n\n"
+            md += f"**Confidence (policy score)**: {self.confidence:.2%}\n\n"
+            md += "This score is not a probability that a discovered graph is correct.\n\n"
 
         md += f"## Rationale\n\n{self.rationale}\n\n"
 
@@ -95,6 +96,8 @@ class Scorecard:
             md += f"\n**Rule Fired**: {self.abstention_explanation.get('rule_fired', 'N/A')}\n\n"
 
         md += "## Risk Summary\n\n"
+        md += "Diagnostic-derived scores with approximate uncertainty bounds; "
+        md += "proxy scores do not identify causal mechanisms.\n\n"
         for risk, values in self.risk_summary.items():
             mean = values.get("mean", 0)
             lower = values.get("lower_95", 0)
@@ -136,7 +139,7 @@ class MethodRecommender:
                 (
                     "ConfoundingRisk",
                     0.80,
-                    "Partially robust to latent confounders via conditioning (less critical than Granger)",
+                    "Causal sufficiency requires domain review; confounding proxies do not identify hidden causes",
                 ),
                 (
                     "PersistenceRisk",
@@ -632,44 +635,21 @@ class MethodRecommender:
                 warnings=abstention_warnings,
             )
 
-        # Low risk, linear, no confounders, no seasonality → VARLiNGAM preferred
-        # (exploits non-Gaussianity for full DAG identifiability; Shimizu et al., 2006)
-        # VARLiNGAM requires: stationarity, no latent confounders, non-Gaussian residuals.
-        # When these hold, it provides strictly more information than PCMCI+ (full DAG vs CPDAG).
-        # Fall back to PCMCI+ if irregularity is high (VARLiNGAM needs complete data).
+        # Low diagnostic risk does not establish non-Gaussian innovations.
+        # The current audit does not test that identifying VARLiNGAM assumption.
+        # Keep PCMCI+ as the linear default; VARLiNGAM needs a separate,
+        # explicit assumption assessment (raw marginal normality is insufficient).
         irreg_mean = risks["IrregularityRisk"]["mean"]
-        if irreg_mean < 0.40:
-            return self._create_recommendation_policy(
-                risk_profile=risk_profile,
-                method="VARLiNGAM",
-                confidence=round(data_driven_confidence, 2),
-                reason=(
-                    f"Low risk profile (nonlin={nonlin_mean:.2f}, confound={confound_mean:.2f}, "
-                    f"seasonal={seasonal_mean:.2f}, nonstat={nonstat_mean:.2f}, irreg={irreg_mean:.2f}): "
-                    f"linear, stationary data with complete observations. VARLiNGAM recommended "
-                    f"for full DAG identifiability via non-Gaussianity."
-                ),
-                method_config={
-                    "varlingam": {"enabled": True},
-                    "pcmci": {
-                        "enabled": True,
-                        "test_method": "parcorr",
-                        "allow_contemporaneous": True,
-                        "note": "validation baseline",
-                    },
-                    "granger": {"enabled": True, "note": "fast linear baseline"},
-                },
-                warnings=abstention_warnings,
-            )
-
-        # High irregularity but otherwise low risk → PCMCI+ (handles missing data)
         return self._create_recommendation_policy(
             risk_profile=risk_profile,
             method="PCMCI+",
             confidence=round(data_driven_confidence, 2),
             reason=(
-                f"Low risk profile but IrregularityRisk={irreg_mean:.2f} > 0.40: "
-                f"missing data present. PCMCI+(ParCorr) recommended (robust to gaps)."
+                f"Low structural risk profile: PCMCI+(ParCorr) is the linear default. "
+                f"The audit does not establish the non-Gaussian innovations required "
+                f"by VARLiNGAM. Check stationarity, causal sufficiency and the chosen "
+                f"lag horizon separately. IrregularityRisk={irreg_mean:.2f}; gaps "
+                f"require explicit handling before discovery."
             ),
             method_config={
                 "pcmci": {
@@ -683,47 +663,35 @@ class MethodRecommender:
         )
 
     def _check_catastrophic_violations(self, risks: Dict) -> Optional[Dict]:
-        """Check for catastrophic violations that invalidate all methods."""
+        """Abstain when the current inputs need review before method selection.
+
+        Neither a low nonlinearity score nor a high seasonality proxy can
+        distinguish a stochastic unit root from a removable deterministic
+        trend. Do not presume that deseasonalization restores applicability.
+        """
 
         nonstat = risks["NonstationarityRisk"]["mean"]
         confound = risks["ConfoundingRisk"]["mean"]
 
-        # Very high nonstationarity (>0.95) — check if it's due to seasonality
-        # (manageable with detrending) or unit root (catastrophic)
         if nonstat > 0.95:
-            # Check if seasonality is the cause (from risk ledger)
-            # If NonlinearityRisk is low but NonstationarityRisk is extreme,
-            # it's likely trend/seasonality rather than a unit root.
-            # Route to "detrend first" recommendation rather than abstaining.
-            nonlin = risks.get("NonlinearityRisk", {}).get("mean", 0.0)
-            if nonlin < 0.30:
-                # Likely trend/seasonality: recommend detrending + PCMCI+
-                # (handled in the main decision tree below)
-                pass  # Don't abstain; fall through to decision tree
-            else:
-                return {
-                    "reason": "Critical nonstationarity with nonlinearity",
-                    "detail": f"NonstationarityRisk={nonstat:.2f} AND NonlinearityRisk={nonlin:.2f}: "
-                    f"likely explosive nonlinear process",
-                    "code": "CRITICAL_NONSTATIONARITY",
-                }
-
-        # Multiple high risks (nonstationarity + confounding) — only abstain if both extreme
-        # AND nonlinearity is also high (ruling out seasonal multicollinearity as the cause)
-        nonlin = risks.get("NonlinearityRisk", {}).get("mean", 0.0)
-        if nonstat > 0.90 and confound > 0.90 and nonlin > 0.30:
             return {
-                "reason": "Multiple critical violations",
-                "detail": f"NonstationarityRisk={nonstat:.2f}, ConfoundingRisk={confound:.2f}, "
-                f"NonlinearityRisk={nonlin:.2f}: complex data structure",
-                "code": "MULTIPLE_CRITICAL_VIOLATIONS",
+                "reason": "Critical nonstationarity requires review",
+                "detail": f"NonstationarityRisk={nonstat:.2f} > 0.95. "
+                "Investigate unit roots, structural breaks, or deterministic trends. "
+                "A seasonality proxy or low nonlinearity score does not establish "
+                "that deseasonalization is sufficient. Assess any preprocessing "
+                "and re-audit the resulting inputs before discovery.",
+                "code": "CRITICAL_NONSTATIONARITY",
             }
 
-        # Composite risk exceeding 0.90 (NonstationarityRisk only — the most critical)
-        # PersistenceRisk and IrregularityRisk are handled by method selection, not abstention.
-        if nonstat > 0.95:
-            # Already handled above (only abstain if nonlinear too)
-            pass
+        if nonstat > 0.90 and confound > 0.90:
+            return {
+                "reason": "Multiple critical violations",
+                "detail": f"NonstationarityRisk={nonstat:.2f}, ConfoundingRisk={confound:.2f}. "
+                "Review nonstationarity and confounding proxies together; "
+                "these scores do not distinguish hidden causes from shared trends.",
+                "code": "MULTIPLE_CRITICAL_VIOLATIONS",
+            }
 
         return None
 
