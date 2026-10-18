@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="framework_overview.svg" width="95%" alt="Framework overview (Figure 1). Stage I computes diagnostics across five assumption families. Stages II–III add calibrated risk scores and an abstention-aware decision policy.">
+  <img src="https://raw.githubusercontent.com/marcoruizrueda/causal-audit/main/framework_overview.svg" width="95%" alt="Framework overview (Figure 1). Stage I computes diagnostics across five assumption families. Stages II–III add calibrated risk scores and an abstention-aware decision policy.">
 </p>
 
 A framework for risk assessment of assumption violations in time-series causal discovery.
@@ -84,8 +84,8 @@ print(result["policy"].decision)  # "recommend" or "abstain"
 print(result["policy"].recommended_method)  # e.g. "PCMCI+" or "LPCMCI"
 ```
 
-Run the [quickstart notebook](examples/quickstart.ipynb) for a complete audit and its
-summary figure. Use the independent [walkthrough](examples/walkthrough.ipynb) to
+Run the [quickstart notebook](https://github.com/marcoruizrueda/causal-audit/blob/main/examples/quickstart.ipynb) for a complete audit and its
+summary figure. Use the independent [walkthrough](https://github.com/marcoruizrueda/causal-audit/blob/main/examples/walkthrough.ipynb) to
 configure the audit, inspect diagnostics, and handle abstention. See [Usage](#usage)
 for the per-stage API.
 
@@ -136,11 +136,11 @@ justified preprocessing before selecting a discovery method.
 
 ## Framework, figures & benchmarks
 
-The pipeline figure, the figure catalogue (six diagnostic figures plus an optional exploratory graph), the synthetic DGP atlas (F1–F10), the framework extension points, and the nonlinearity-diagnostic notes live in [FRAMEWORK.md](causal_audit/FRAMEWORK.md).
+The pipeline figure, the figure catalogue (six diagnostic figures plus an optional exploratory graph), the synthetic DGP atlas (F1–F10), the framework extension points, and the nonlinearity-diagnostic notes live in [FRAMEWORK.md](https://github.com/marcoruizrueda/causal-audit/blob/main/causal_audit/FRAMEWORK.md).
 
 ## Reproducing paper experiments
 
-See the step-by-step commands in [FRAMEWORK.md](causal_audit/FRAMEWORK.md#reproducing-paper-experiments).
+See the step-by-step commands in [FRAMEWORK.md](https://github.com/marcoruizrueda/causal-audit/blob/main/causal_audit/FRAMEWORK.md#reproducing-paper-experiments).
 
 ## Citation
 
