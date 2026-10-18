@@ -6,7 +6,7 @@ Ruiz et al. (2026). Journal of Causal Inference.
 https://github.com/marcoruizrueda/causal-audit
 """
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __author__ = "Marco Ruiz, Miguel Arana-Catania, David R. Ardila, Rodrigo Ventura"
 __license__ = "MIT"
 

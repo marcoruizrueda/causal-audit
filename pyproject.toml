@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "causal-audit"
-version = "0.3.2"
+version = "0.3.3"
 description = "A framework for risk assessment of assumption violations in time-series causal discovery. Generates publication-quality pre-discovery figures (IEEE style) and method recommendations."
 authors = [
     {name = "Marco Ruiz", email = "marco.rueda@tecnico.ulisboa.pt"},
